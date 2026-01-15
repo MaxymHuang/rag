@@ -25,10 +25,17 @@ uv sync
 
 ### Ingest Documents
 
-Process and index documents from `agent-doc/`:
+Process and index documents from local files and/or Notion:
 
 ```bash
+# Ingest from all sources (local + Notion)
 uv run rag ingest
+
+# Ingest from local files only
+uv run rag ingest --source local
+
+# Ingest from Notion only
+uv run rag ingest --source notion
 ```
 
 ### Query Documents
@@ -61,6 +68,23 @@ Remove all indexed documents:
 uv run rag clear
 ```
 
+## Notion Integration
+
+To load documents from a Notion database:
+
+1. Create an integration at https://www.notion.so/my-integrations
+2. Share your target Notion database with the integration (click "..." > "Connections" > select your integration)
+3. Create a `.env` file in the project root:
+
+```
+NOTION_TOKEN=secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+NOTION_DATABASE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+The database ID can be found in the Notion database URL (the 32-character hex string after the workspace name).
+
+Each row in the database becomes a document. Both page properties (columns) and page content (body) are extracted.
+
 ## Configuration
 
 Edit `src/config.py` to customize:
@@ -77,11 +101,12 @@ Edit `src/config.py` to customize:
 rag/
 ├── pyproject.toml          # Project configuration
 ├── README.md
-├── agent-doc/              # Source documents
+├── agent-doc/              # Local source documents
 ├── src/
 │   ├── cli.py              # CLI entry point
 │   ├── config.py           # Configuration settings
-│   ├── document_loader.py  # Document loading/chunking
+│   ├── document_loader.py  # Local document loading/chunking
+│   ├── notion_loader.py    # Notion API document loading
 │   ├── embeddings.py       # Ollama embeddings
 │   ├── vector_store.py     # ChromaDB operations
 │   └── rag_chain.py        # RAG query chain

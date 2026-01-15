@@ -36,3 +36,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Environment
+.env
+
+# Documents
+/agent-doc/
