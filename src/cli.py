@@ -4,14 +4,13 @@ import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
-from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from src.document_loader import load_and_chunk_documents
 from src.vector_store import add_documents, clear_vector_store, get_document_count
 from src.rag_chain import query_rag
 from src.config import DOCS_DIR, LLM_MODEL, EMBEDDING_MODEL
 
-console = Console()
+console = Console(force_terminal=True, legacy_windows=True)
 
 
 @click.group()
@@ -25,28 +24,21 @@ def ingest():
     """Ingest documents from agent-doc/ into the vector store."""
     console.print(f"\n[bold blue]Ingesting documents from:[/] {DOCS_DIR}\n")
     
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console
-    ) as progress:
-        # Load and chunk documents
-        task = progress.add_task("Loading and chunking documents...", total=None)
-        try:
-            chunks = load_and_chunk_documents()
-            progress.update(task, description=f"Loaded {len(chunks)} chunks")
-        except FileNotFoundError as e:
-            console.print(f"[red]Error:[/] {e}")
-            return
-        
-        if not chunks:
-            console.print("[yellow]No documents found to ingest.[/]")
-            return
-        
-        # Add to vector store
-        progress.update(task, description=f"Embedding {len(chunks)} chunks (using {EMBEDDING_MODEL})...")
-        count = add_documents(chunks)
-        progress.update(task, description="Done!")
+    console.print("Loading and chunking documents...")
+    try:
+        chunks = load_and_chunk_documents()
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/] {e}")
+        return
+    
+    if not chunks:
+        console.print("[yellow]No documents found to ingest.[/]")
+        return
+    
+    console.print(f"Loaded {len(chunks)} chunks")
+    console.print(f"Embedding chunks using {EMBEDDING_MODEL}...")
+    
+    count = add_documents(chunks)
     
     console.print(f"\n[green]Successfully ingested {count} chunks into the vector store.[/]\n")
 
@@ -64,14 +56,8 @@ def query(question: str, show_sources: bool):
     
     console.print(f"\n[dim]Querying {doc_count} document chunks with {LLM_MODEL}...[/]\n")
     
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        console=console
-    ) as progress:
-        task = progress.add_task("Thinking...", total=None)
-        answer, sources = query_rag(question)
-        progress.update(task, description="Done!")
+    console.print("Thinking...")
+    answer, sources = query_rag(question)
     
     # Display answer
     console.print(Panel(
