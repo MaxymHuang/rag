@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.manifest
+*.spec
+*.sqlite3
+# Virtual environments
+.venv/
+venv/
+ENV/
+chroma_db/
+# uv
+.uv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Data
+data/chroma_db/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
