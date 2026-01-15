@@ -89,7 +89,19 @@ def ingest(source: str):
 @main.command()
 @click.argument("question")
 @click.option("--show-sources", "-s", is_flag=True, help="Show source documents")
-def query(question: str, show_sources: bool):
+@click.option(
+    "--mode", "-m",
+    type=click.Choice(["hybrid", "vector", "keyword"], case_sensitive=False),
+    default="hybrid",
+    help="Search mode: 'hybrid' (default), 'vector' (semantic), 'keyword' (exact match)"
+)
+@click.option("--verbose", "-v", is_flag=True, help="Show retrieved chunks before answering")
+@click.option(
+    "--filter-title", "-t",
+    default=None,
+    help="Filter results by title/filename (case-insensitive substring match)"
+)
+def query(question: str, show_sources: bool, mode: str, verbose: bool, filter_title: str | None):
     """Ask a question about your documents."""
     doc_count = get_document_count()
     
@@ -97,10 +109,23 @@ def query(question: str, show_sources: bool):
         console.print("[yellow]No documents in vector store. Run 'rag ingest' first.[/]")
         return
     
-    console.print(f"\n[dim]Querying {doc_count} document chunks with {LLM_MODEL}...[/]\n")
+    filter_info = f", title filter: '{filter_title}'" if filter_title else ""
+    console.print(f"\n[dim]Querying {doc_count} chunks ({mode} search{filter_info}) with {LLM_MODEL}...[/]\n")
     
-    console.print("Thinking...")
-    answer, sources = query_rag(question)
+    console.print("Retrieving relevant documents...")
+    answer, sources = query_rag(question, search_mode=mode, title_filter=filter_title)
+    
+    # Verbose mode: show what was retrieved
+    if verbose and sources:
+        console.print(f"\n[bold cyan]Retrieved {len(sources)} chunks:[/]")
+        for i, doc in enumerate(sources, 1):
+            source_name = sanitize_text(doc.metadata.get("source", "unknown"))
+            preview = doc.page_content[:150].replace("\n", " ")
+            preview = sanitize_text(preview) + "..."
+            console.print(f"  [{i}] {source_name}: {preview}")
+        console.print()
+    
+    console.print("Generating answer...")
     
     # Display answer (sanitize for Windows console)
     safe_answer = sanitize_text(answer)

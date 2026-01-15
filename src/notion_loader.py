@@ -269,7 +269,8 @@ def load_database_page(client: Client, page: dict, include_content: bool = True)
             "source": f"notion:{title}",
             "notion_page_id": page_id,
             "notion_url": get_page_url(page_id),
-            "title": title
+            "title": title.lower(),  # lowercase for consistent filtering
+            "file_type": "notion"
         }
     )
 

@@ -14,8 +14,8 @@ DOCS_DIR = PROJECT_ROOT / "agent-doc"
 DATA_DIR = PROJECT_ROOT / "data"
 CHROMA_DB_DIR = DATA_DIR / "chroma_db"
 
-# Ollama settings
-EMBEDDING_MODEL = "hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF"
+# Embedding model (HuggingFace)
+EMBEDDING_MODEL = "BAAI/bge-large-en-v1.5"
 LLM_MODEL = "hf.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF:Q4_K_M"
 OLLAMA_BASE_URL = "http://localhost:11434"
 

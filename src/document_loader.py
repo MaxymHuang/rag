@@ -157,10 +157,15 @@ def load_documents(docs_dir: Path = DOCS_DIR) -> list[Document]:
                     continue
                 loaded_docs = loader.load()
             
-            # Add source metadata with relative path for better context
+            # Add rich metadata for better context and filtering
             rel_path = file_path.relative_to(docs_dir)
+            title = file_path.stem.lower()  # filename without extension, lowercase for filtering
+            file_type = file_path.suffix.lower().lstrip(".")  # extension without dot
+            
             for doc in loaded_docs:
                 doc.metadata["source"] = str(rel_path)
+                doc.metadata["title"] = title
+                doc.metadata["file_type"] = file_type
             documents.extend(loaded_docs)
             
         except Exception as e:
