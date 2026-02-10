@@ -56,6 +56,8 @@ def format_context(documents: list[Document]) -> str:
         source = doc.metadata.get("source", "unknown")
         title = doc.metadata.get("title", "")
         file_type = doc.metadata.get("file_type", "")
+        modality = doc.metadata.get("modality", "")
+        page_or_slide = doc.metadata.get("page_or_slide", "")
         
         # Build metadata line
         meta_parts = [f"Source: {source}"]
@@ -63,6 +65,10 @@ def format_context(documents: list[Document]) -> str:
             meta_parts.append(f"Title: {title}")
         if file_type:
             meta_parts.append(f"Type: {file_type}")
+        if modality:
+            meta_parts.append(f"Modality: {modality}")
+        if page_or_slide:
+            meta_parts.append(f"PageOrSlide: {page_or_slide}")
         meta_line = " | ".join(meta_parts)
         
         context_parts.append(f"[{i}] ({meta_line})\n{doc.page_content}")

@@ -41,6 +41,21 @@ export default function App() {
   const messageIdRef = useRef(1);
 
   const canAsk = useMemo(() => question.trim().length > 0 && !chatLoading, [chatLoading, question]);
+  const isBackendReady =
+    status !== null &&
+    status.chunk_count > 0 &&
+    status.notion_configured &&
+    status.embedding_model.trim().length > 0 &&
+    status.llm_model.trim().length > 0;
+  const missingReadinessItems =
+    status === null
+      ? []
+      : [
+          ...(status.chunk_count > 0 ? [] : ["No chunks indexed"]),
+          ...(status.notion_configured ? [] : ["Notion not configured"]),
+          ...(status.embedding_model.trim().length > 0 ? [] : ["Embedding model missing"]),
+          ...(status.llm_model.trim().length > 0 ? [] : ["LLM model missing"])
+        ];
 
   async function loadStatus() {
     try {
@@ -174,13 +189,24 @@ export default function App() {
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
         <header className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <h1 className="text-2xl font-semibold">RAG Agent</h1>
+          <h1 className="text-2xl font-semibold">AXI Expert</h1>
           <p className="text-sm text-slate-400">Chat over local + Notion documents with ingestion progress tracking.</p>
         </header>
 
         <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-medium">Backend Status</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-medium">Agent Status</h2>
+              {isBackendReady ? (
+                <span className="rounded-full bg-emerald-600/20 px-2 py-0.5 text-xs font-medium text-emerald-300 ring-1 ring-emerald-500/40">
+                  Ready
+                </span>
+              ) : (
+                <span className="rounded-full bg-red-600/20 px-2 py-0.5 text-xs font-medium text-red-300 ring-1 ring-red-500/40">
+                  Not Ready
+                </span>
+              )}
+            </div>
             <button
               className="rounded bg-slate-700 px-3 py-1 text-sm hover:bg-slate-600"
               onClick={() => void loadStatus()}
@@ -192,12 +218,17 @@ export default function App() {
           {statusError ? (
             <p className="text-sm text-red-400">{statusError}</p>
           ) : status ? (
-            <div className="grid gap-2 text-sm text-slate-300 md:grid-cols-2">
-              <p>Chunks: {status.chunk_count}</p>
-              <p>Notion configured: {status.notion_configured ? "Yes" : "No"}</p>
-              <p className="truncate">Embedding model: {status.embedding_model}</p>
-              <p className="truncate">LLM model: {status.llm_model}</p>
-            </div>
+            <>
+              <div className="grid gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <p>Chunks: {status.chunk_count}</p>
+                <p>Notion configured: {status.notion_configured ? "Yes" : "No"}</p>
+                <p className="truncate">Embedding model: {status.embedding_model}</p>
+                <p className="truncate">LLM model: {status.llm_model}</p>
+              </div>
+              {!isBackendReady ? (
+                <p className="mt-3 text-sm text-red-300">Missing: {missingReadinessItems.join(", ")}</p>
+              ) : null}
+            </>
           ) : (
             <p className="text-sm text-slate-400">Loading status...</p>
           )}

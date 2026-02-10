@@ -39,7 +39,30 @@ TOP_K_RESULTS = 8
 COLLECTION_NAME = "agent_docs"
 
 # Supported document extensions
-SUPPORTED_EXTENSIONS = [".txt", ".md", ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".pptx", ".ppt"]
+SUPPORTED_EXTENSIONS = [
+    ".txt",
+    ".md",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".xlsx",
+    ".xls",
+    ".csv",
+    ".pptx",
+    ".ppt",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".tiff",
+]
+
+# Multimodal vision settings
+VISION_ENABLED = os.getenv("VISION_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+VISION_CAPTION_PROVIDER = os.getenv("VISION_CAPTION_PROVIDER", "ollama").strip().lower()
+VISION_CAPTION_MODEL = os.getenv("VISION_CAPTION_MODEL", "llava:13b").strip()
+VISION_MAX_IMAGES_PER_DOC = max(1, int(os.getenv("VISION_MAX_IMAGES_PER_DOC", "16")))
+OCR_ENABLED = os.getenv("OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 # Notion settings
 NOTION_TOKEN = os.getenv("NOTION_TOKEN", "")

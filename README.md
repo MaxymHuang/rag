@@ -165,6 +165,40 @@ Edit `src/config.py`:
 - `CHUNK_SIZE`
 - `CHUNK_OVERLAP`
 - `TOP_K_RESULTS`
+- `SUPPORTED_EXTENSIONS` (now includes image files like `.png`, `.jpg`, `.jpeg`, `.webp`, `.tiff`)
+- `VISION_ENABLED`
+- `VISION_CAPTION_PROVIDER`
+- `VISION_CAPTION_MODEL`
+- `VISION_MAX_IMAGES_PER_DOC`
+- `OCR_ENABLED`
+
+## Multimodal Ingestion
+
+Local ingestion now supports text + visual processing for:
+- PDF text and embedded images
+- PPTX text and slide images
+- Standalone image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.tiff`)
+
+When vision is enabled, extracted images are captioned and the captions are embedded as additional retrievable chunks.
+
+Example `.env` settings:
+
+```bash
+VISION_ENABLED=true
+VISION_CAPTION_PROVIDER=ollama
+VISION_CAPTION_MODEL=llava:13b
+VISION_MAX_IMAGES_PER_DOC=16
+
+# Optional OCR extraction to append visible text from images
+OCR_ENABLED=false
+```
+
+Caption-derived chunks include metadata such as:
+- `modality=image_caption`
+- `page_or_slide`
+- `image_mime`
+- `parent_source`
+- `caption_model`
 
 ## GPU Memory Tuning
 

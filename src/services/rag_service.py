@@ -7,10 +7,11 @@ from typing import Literal
 from langchain_core.documents import Document
 
 from src.config import DOCS_DIR, EMBEDDING_MODEL, NOTION_DATABASE_ID, NOTION_TOKEN, get_llm_model
-from src.document_loader import chunk_documents, load_and_chunk_documents
+from src.document_loader import chunk_documents, load_multimodal_artifacts
 from src.notion_loader import load_notion_documents
 from src.rag_chain import query_rag
 from src.vector_store import add_documents, clear_vector_store, get_document_count
+from src.vision_captioner import caption_visual_artifacts
 
 IngestSource = Literal["all", "local", "notion"]
 QueryMode = Literal["hybrid", "vector", "keyword"]
@@ -36,6 +37,10 @@ def ingest_documents(
     """Ingest documents from local files and/or Notion into the vector store."""
     all_chunks: list[Document] = []
     local_chunks_count = 0
+    local_text_chunks_count = 0
+    local_caption_chunks_count = 0
+    local_image_artifacts_count = 0
+    local_caption_failed_count = 0
     notion_chunks_count = 0
     notion_pages_count = 0
 
@@ -43,14 +48,41 @@ def ingest_documents(
 
     if source in ("all", "local"):
         _emit_progress(progress_callback, "local_loading", 10, f"Loading local docs from {DOCS_DIR}")
-        local_chunks = load_and_chunk_documents()
-        local_chunks_count = len(local_chunks)
-        all_chunks.extend(local_chunks)
+        local_docs, image_artifacts = load_multimodal_artifacts()
+
+        _emit_progress(
+            progress_callback,
+            "image_extracting",
+            20 if source == "all" else 35,
+            f"Extracted {len(image_artifacts)} image artifacts from local files",
+        )
+
+        local_text_chunks = chunk_documents(local_docs)
+        local_text_chunks_count = len(local_text_chunks)
+        local_image_artifacts_count = len(image_artifacts)
+
+        local_caption_chunks: list[Document] = []
+        if image_artifacts:
+            _emit_progress(
+                progress_callback,
+                "image_captioning",
+                25 if source == "all" else 45,
+                f"Captioning {len(image_artifacts)} images",
+            )
+            local_caption_chunks, local_caption_failed_count = caption_visual_artifacts(image_artifacts)
+
+        local_caption_chunks_count = len(local_caption_chunks)
+        local_chunks_count = local_text_chunks_count + local_caption_chunks_count
+        all_chunks.extend(local_text_chunks)
+        all_chunks.extend(local_caption_chunks)
         _emit_progress(
             progress_callback,
             "local_done",
             30 if source == "all" else 60,
-            f"Loaded {local_chunks_count} local chunks",
+            (
+                f"Loaded {local_chunks_count} local chunks "
+                f"({local_text_chunks_count} text, {local_caption_chunks_count} caption)"
+            ),
         )
 
     if source in ("all", "notion"):
@@ -77,6 +109,10 @@ def ingest_documents(
             "total_chunks": 0,
             "ingested_chunks": 0,
             "local_chunks": local_chunks_count,
+            "local_text_chunks": local_text_chunks_count,
+            "local_caption_chunks": local_caption_chunks_count,
+            "local_image_artifacts": local_image_artifacts_count,
+            "local_caption_failed": local_caption_failed_count,
             "notion_chunks": notion_chunks_count,
             "notion_pages": notion_pages_count,
         }
@@ -90,6 +126,10 @@ def ingest_documents(
         "total_chunks": len(all_chunks),
         "ingested_chunks": count,
         "local_chunks": local_chunks_count,
+        "local_text_chunks": local_text_chunks_count,
+        "local_caption_chunks": local_caption_chunks_count,
+        "local_image_artifacts": local_image_artifacts_count,
+        "local_caption_failed": local_caption_failed_count,
         "notion_chunks": notion_chunks_count,
         "notion_pages": notion_pages_count,
     }
