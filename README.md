@@ -165,3 +165,35 @@ Edit `src/config.py`:
 - `CHUNK_SIZE`
 - `CHUNK_OVERLAP`
 - `TOP_K_RESULTS`
+
+## GPU Memory Tuning
+
+For query-time CUDA OOM issues, set these in your project `.env`:
+
+```bash
+# Keep embedding on GPU
+EMBEDDING_DEVICE=cuda:0
+
+# Start balanced; lower if memory pressure continues
+EMBEDDING_BATCH_SIZE=24
+EMBEDDING_OOM_RETRY_BATCH_SIZE=8
+
+# Keep vector quality and speed defaults
+EMBEDDING_NORMALIZE=true
+
+# Keep disabled for speed-first profile (enable only if needed)
+EMBEDDING_OOM_CPU_FALLBACK=false
+
+# Recommended by PyTorch to reduce fragmentation
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+```
+
+If OOM persists:
+- Lower `EMBEDDING_BATCH_SIZE` to `16` or `8`.
+- Keep `EMBEDDING_OOM_RETRY_BATCH_SIZE` at `4` or `8`.
+- Enable `EMBEDDING_OOM_CPU_FALLBACK=true` only if stability is more important than speed.
+
+Validation checklist:
+- Run repeated `/chat` requests and confirm no progressive VRAM growth.
+- Run `/ingest` while sending `/chat` requests and confirm no CUDA OOM.
+- Confirm latency remains acceptable after batch-size tuning.

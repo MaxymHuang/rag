@@ -1,5 +1,6 @@
 export type QueryMode = "hybrid" | "vector" | "keyword";
 export type IngestSource = "all" | "local" | "notion";
+export type ChatRole = "user" | "assistant";
 
 export interface SourceItem {
   source: string;
@@ -10,6 +11,11 @@ export interface SourceItem {
 export interface ChatResponse {
   answer: string;
   sources: SourceItem[];
+}
+
+export interface ChatMessage {
+  role: ChatRole;
+  content: string;
 }
 
 export interface StatusResponse {
@@ -36,5 +42,10 @@ export interface IngestEvent {
   timestamp?: string;
   result?: Record<string, unknown>;
   error?: string | null;
+}
+
+export interface ModelsResponse {
+  current: string;
+  available: string[];
 }
 

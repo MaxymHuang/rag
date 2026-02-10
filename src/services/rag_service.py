@@ -1,11 +1,12 @@
 """Shared RAG service operations for CLI and API consumers."""
 
 from collections.abc import Callable
+import threading
 from typing import Literal
 
 from langchain_core.documents import Document
 
-from src.config import DOCS_DIR, EMBEDDING_MODEL, LLM_MODEL, NOTION_DATABASE_ID, NOTION_TOKEN
+from src.config import DOCS_DIR, EMBEDDING_MODEL, NOTION_DATABASE_ID, NOTION_TOKEN, get_llm_model
 from src.document_loader import chunk_documents, load_and_chunk_documents
 from src.notion_loader import load_notion_documents
 from src.rag_chain import query_rag
@@ -14,6 +15,7 @@ from src.vector_store import add_documents, clear_vector_store, get_document_cou
 IngestSource = Literal["all", "local", "notion"]
 QueryMode = Literal["hybrid", "vector", "keyword"]
 ProgressCallback = Callable[[str, int, str], None]
+_embedding_work_lock = threading.Lock()
 
 
 def _emit_progress(
@@ -80,7 +82,8 @@ def ingest_documents(
         }
 
     _emit_progress(progress_callback, "embedding", 80, f"Embedding chunks with {EMBEDDING_MODEL}")
-    count = add_documents(all_chunks)
+    with _embedding_work_lock:
+        count = add_documents(all_chunks)
     _emit_progress(progress_callback, "completed", 100, f"Ingested {count} chunks")
 
     return {
@@ -96,12 +99,16 @@ def query_documents(
     question: str,
     search_mode: QueryMode = "hybrid",
     title_filter: str | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> tuple[str, list[Document]]:
     """Query the RAG chain after ensuring the vector store is populated."""
     doc_count = get_document_count()
     if doc_count == 0:
         raise ValueError("No documents in vector store. Run ingest first.")
-    return query_rag(question, search_mode=search_mode, title_filter=title_filter)
+    if search_mode == "keyword":
+        return query_rag(question, search_mode=search_mode, title_filter=title_filter, history=history)
+    with _embedding_work_lock:
+        return query_rag(question, search_mode=search_mode, title_filter=title_filter, history=history)
 
 
 def get_status() -> dict:
@@ -113,7 +120,7 @@ def get_status() -> dict:
         "notion_database_id": NOTION_DATABASE_ID if notion_configured else "",
         "chunk_count": get_document_count(),
         "embedding_model": EMBEDDING_MODEL,
-        "llm_model": LLM_MODEL,
+        "llm_model": get_llm_model(),
     }
 
 

@@ -1,6 +1,7 @@
 """ChromaDB vector store operations with hybrid search."""
 
 import shutil
+import threading
 from collections import defaultdict
 
 from langchain_chroma import Chroma
@@ -13,17 +14,27 @@ from src.embeddings import get_embeddings
 # Cache for BM25 retriever (rebuilt on ingest)
 _bm25_retriever = None
 _all_documents = []
+_vector_store: Chroma | None = None
+_vector_store_lock = threading.Lock()
 
 
 def get_vector_store() -> Chroma:
     """Get or create the ChromaDB vector store."""
+    global _vector_store
+
+    if _vector_store is not None:
+        return _vector_store
+
     CHROMA_DB_DIR.mkdir(parents=True, exist_ok=True)
-    
-    return Chroma(
-        collection_name=COLLECTION_NAME,
-        embedding_function=get_embeddings(),
-        persist_directory=str(CHROMA_DB_DIR)
-    )
+
+    with _vector_store_lock:
+        if _vector_store is None:
+            _vector_store = Chroma(
+                collection_name=COLLECTION_NAME,
+                embedding_function=get_embeddings(),
+                persist_directory=str(CHROMA_DB_DIR),
+            )
+    return _vector_store
 
 
 def add_documents(documents: list[Document]) -> int:
@@ -202,6 +213,12 @@ def keyword_search(
 
 def clear_vector_store() -> bool:
     """Clear all data from the vector store."""
+    global _bm25_retriever, _all_documents, _vector_store
+
+    _bm25_retriever = None
+    _all_documents = []
+    _vector_store = None
+
     if CHROMA_DB_DIR.exists():
         shutil.rmtree(CHROMA_DB_DIR)
         return True

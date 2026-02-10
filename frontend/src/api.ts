@@ -1,8 +1,10 @@
 import type {
   ChatResponse,
+  ChatMessage,
   IngestEvent,
   IngestSource,
   IngestStartResponse,
+  ModelsResponse,
   QueryMode,
   StatusResponse
 } from "./types";
@@ -27,6 +29,7 @@ export async function sendChat(params: {
   mode: QueryMode;
   showSources: boolean;
   filterTitle?: string;
+  history?: ChatMessage[];
 }): Promise<ChatResponse> {
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
@@ -35,10 +38,25 @@ export async function sendChat(params: {
       question: params.question,
       mode: params.mode,
       show_sources: params.showSources,
-      filter_title: params.filterTitle || null
+      filter_title: params.filterTitle || null,
+      history: params.history ?? []
     })
   });
   return readJson<ChatResponse>(response);
+}
+
+export async function fetchModels(): Promise<ModelsResponse> {
+  const response = await fetch(`${API_BASE_URL}/models`);
+  return readJson<ModelsResponse>(response);
+}
+
+export async function selectModel(model: string): Promise<ModelsResponse> {
+  const response = await fetch(`${API_BASE_URL}/models/select`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model })
+  });
+  return readJson<ModelsResponse>(response);
 }
 
 export async function startIngest(source: IngestSource): Promise<IngestStartResponse> {

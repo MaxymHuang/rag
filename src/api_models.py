@@ -7,6 +7,12 @@ from pydantic import BaseModel, Field
 
 IngestSource = Literal["all", "local", "notion"]
 QueryMode = Literal["hybrid", "vector", "keyword"]
+ChatRole = Literal["user", "assistant"]
+
+
+class ChatMessage(BaseModel):
+    role: ChatRole
+    content: str = Field(min_length=1)
 
 
 class ChatRequest(BaseModel):
@@ -14,6 +20,7 @@ class ChatRequest(BaseModel):
     mode: QueryMode = "hybrid"
     show_sources: bool = False
     filter_title: str | None = None
+    history: list[ChatMessage] = Field(default_factory=list)
 
 
 class SourceItem(BaseModel):
@@ -24,7 +31,7 @@ class SourceItem(BaseModel):
 
 class ChatResponse(BaseModel):
     answer: str
-    sources: list[SourceItem] = []
+    sources: list[SourceItem] = Field(default_factory=list)
 
 
 class StatusResponse(BaseModel):
@@ -57,4 +64,18 @@ class IngestJobResponse(BaseModel):
     source: IngestSource
     result: dict | None = None
     error: str | None = None
+
+
+class ModelsResponse(BaseModel):
+    current: str
+    available: list[str]
+
+
+class ModelSelectRequest(BaseModel):
+    model: str = Field(min_length=1)
+
+
+class ModelSelectResponse(BaseModel):
+    current: str
+    available: list[str]
 

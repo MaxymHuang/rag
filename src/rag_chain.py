@@ -5,7 +5,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
 
-from src.config import LLM_MODEL, OLLAMA_BASE_URL, TOP_K_RESULTS
+from src.config import OLLAMA_BASE_URL, TOP_K_RESULTS, get_llm_model
 from src.vector_store import similarity_search, hybrid_search, keyword_search
 
 
@@ -21,12 +21,16 @@ Answer the user's question using ONLY the provided context. Follow these guideli
 5. **Structure**: For complex answers, use bullet points or numbered lists.
 
 ## Handling Edge Cases
-- If no relevant information exists: State "The provided documents do not contain information about [topic]."
+- If you find information relevant to the question, but the context can only be best described in graphical way, ask the user to look up the source document in the browser.
+- If no relevant information exists: State "The provided documents do not contain information about [topic].
 - If information is partial: Provide what is available and note the gaps.
 - If sources conflict: Present both perspectives with their respective citations."""
 
 RAG_PROMPT_TEMPLATE = """Context:
 {context}
+
+Conversation history:
+{history}
 
 Question: {question}
 
@@ -36,7 +40,7 @@ Answer based on the context above. If you find relevant information, cite the so
 def get_llm() -> ChatOllama:
     """Get the Ollama LLM."""
     return ChatOllama(
-        model=LLM_MODEL,
+        model=get_llm_model(),
         base_url=OLLAMA_BASE_URL,
         temperature=0.1
     )
@@ -67,13 +71,30 @@ def format_context(documents: list[Document]) -> str:
 
 
 SearchMode = Literal["hybrid", "vector", "keyword"]
+HistoryMessage = dict[str, str]
+
+
+def format_history(history: list[HistoryMessage] | None) -> str:
+    """Format prior chat messages for follow-up context."""
+    if not history:
+        return "No prior conversation."
+
+    parts: list[str] = []
+    for item in history:
+        role = item.get("role", "").strip()
+        content = item.get("content", "").strip()
+        if role not in {"user", "assistant"} or not content:
+            continue
+        parts.append(f"{role.capitalize()}: {content}")
+    return "\n".join(parts) if parts else "No prior conversation."
 
 
 def query_rag(
     question: str, 
     k: int = TOP_K_RESULTS,
     search_mode: SearchMode = "hybrid",
-    title_filter: str | None = None
+    title_filter: str | None = None,
+    history: list[HistoryMessage] | None = None
 ) -> tuple[str, list[Document]]:
     """
     Query the RAG system.
@@ -97,6 +118,7 @@ def query_rag(
     
     # Format context
     context = format_context(documents)
+    formatted_history = format_history(history)
     
     # Build prompt
     prompt = ChatPromptTemplate.from_messages([
@@ -110,6 +132,7 @@ def query_rag(
     
     response = chain.invoke({
         "context": context,
+        "history": formatted_history,
         "question": question
     })
     

@@ -17,10 +17,14 @@ from src.api_models import (
     IngestJobResponse,
     IngestStartRequest,
     IngestStartResponse,
+    ModelSelectRequest,
+    ModelSelectResponse,
+    ModelsResponse,
     SourceItem,
     StatusResponse,
 )
 from src.ingest_jobs import IngestJobManager
+from src.services.model_service import get_models, select_model
 from src.services.rag_service import clear_documents, get_status, query_documents
 
 app = FastAPI(title="RAG Agent API", version="0.1.0")
@@ -57,6 +61,7 @@ def chat(payload: ChatRequest) -> ChatResponse:
             question=payload.question,
             search_mode=payload.mode,
             title_filter=payload.filter_title,
+            history=[{"role": item.role, "content": item.content} for item in payload.history],
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -74,6 +79,21 @@ def chat(payload: ChatRequest) -> ChatResponse:
                 )
             )
     return ChatResponse(answer=answer, sources=sources)
+
+
+@app.get("/models", response_model=ModelsResponse)
+def models() -> ModelsResponse:
+    data = get_models()
+    return ModelsResponse(current=data["current"], available=data["available"])
+
+
+@app.post("/models/select", response_model=ModelSelectResponse)
+def models_select(payload: ModelSelectRequest) -> ModelSelectResponse:
+    try:
+        data = select_model(payload.model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ModelSelectResponse(current=data["current"], available=data["available"])
 
 
 @app.post("/ingest", response_model=IngestStartResponse)
