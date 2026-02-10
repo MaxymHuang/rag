@@ -6,11 +6,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 
-from src.document_loader import load_and_chunk_documents, chunk_documents
-from src.notion_loader import load_notion_documents
-from src.vector_store import add_documents, clear_vector_store, get_document_count
-from src.rag_chain import query_rag
-from src.config import DOCS_DIR, LLM_MODEL, EMBEDDING_MODEL, NOTION_TOKEN, NOTION_DATABASE_ID
+from src.services.rag_service import clear_documents, get_status, ingest_documents, query_documents
 
 # Use UTF-8 for Windows console if possible
 if sys.platform == "win32":
@@ -39,51 +35,30 @@ def main():
 )
 def ingest(source: str):
     """Ingest documents from local files and/or Notion into the vector store."""
-    all_chunks = []
-    
-    # Load from local files
-    if source in ("all", "local"):
-        console.print(f"\n[bold blue]Loading local documents from:[/] {DOCS_DIR}")
-        try:
-            local_chunks = load_and_chunk_documents()
-            all_chunks.extend(local_chunks)
-            console.print(f"  Loaded {len(local_chunks)} chunks from local files")
-        except FileNotFoundError as e:
-            if source == "local":
-                console.print(f"[red]Error:[/] {e}")
-                return
-            console.print(f"  [yellow]Skipped:[/] {e}")
-    
-    # Load from Notion
-    if source in ("all", "notion"):
-        if not NOTION_TOKEN or not NOTION_DATABASE_ID:
-            if source == "notion":
-                console.print("[red]Error:[/] NOTION_TOKEN and NOTION_DATABASE_ID must be set")
-                return
-            console.print("  [dim]Skipped Notion: credentials not configured[/]")
-        else:
-            console.print("\n[bold blue]Loading documents from Notion...[/]")
-            try:
-                notion_docs = load_notion_documents()
-                notion_chunks = chunk_documents(notion_docs)
-                all_chunks.extend(notion_chunks)
-                console.print(f"  Loaded {len(notion_chunks)} chunks from {len(notion_docs)} Notion pages")
-            except Exception as e:
-                if source == "notion":
-                    console.print(f"[red]Error loading Notion:[/] {e}")
-                    return
-                console.print(f"  [yellow]Notion error:[/] {e}")
-    
-    if not all_chunks:
+    try:
+        result = ingest_documents(source=source)
+    except FileNotFoundError as e:
+        console.print(f"[red]Error:[/] {e}")
+        return
+    except ValueError as e:
+        console.print(f"[red]Error:[/] {e}")
+        return
+    except Exception as e:
+        console.print(f"[red]Ingestion failed:[/] {e}")
+        return
+
+    if result["total_chunks"] == 0:
         console.print("\n[yellow]No documents found to ingest.[/]")
         return
-    
-    console.print(f"\n[bold]Total:[/] {len(all_chunks)} chunks")
-    console.print(f"Embedding chunks using {EMBEDDING_MODEL}...")
-    
-    count = add_documents(all_chunks)
-    
-    console.print(f"\n[green]Successfully ingested {count} chunks into the vector store.[/]\n")
+
+    console.print(f"\n[bold]Total:[/] {result['total_chunks']} chunks")
+    if result["local_chunks"]:
+        console.print(f"  Local chunks: {result['local_chunks']}")
+    if result["notion_chunks"]:
+        console.print(
+            f"  Notion chunks: {result['notion_chunks']} (from {result['notion_pages']} pages)"
+        )
+    console.print(f"\n[green]Successfully ingested {result['ingested_chunks']} chunks into the vector store.[/]\n")
 
 
 @main.command()
@@ -103,18 +78,26 @@ def ingest(source: str):
 )
 def query(question: str, show_sources: bool, mode: str, verbose: bool, filter_title: str | None):
     """Ask a question about your documents."""
-    doc_count = get_document_count()
-    
+    status_data = get_status()
+    doc_count = status_data["chunk_count"]
+
     if doc_count == 0:
         console.print("[yellow]No documents in vector store. Run 'rag ingest' first.[/]")
         return
-    
+
     filter_info = f", title filter: '{filter_title}'" if filter_title else ""
-    console.print(f"\n[dim]Querying {doc_count} chunks ({mode} search{filter_info}) with {LLM_MODEL}...[/]\n")
-    
+    console.print(
+        f"\n[dim]Querying {doc_count} chunks ({mode} search{filter_info}) "
+        f"with {status_data['llm_model']}...[/]\n"
+    )
+
     console.print("Retrieving relevant documents...")
-    answer, sources = query_rag(question, search_mode=mode, title_filter=filter_title)
-    
+    try:
+        answer, sources = query_documents(question, search_mode=mode, title_filter=filter_title)
+    except ValueError as e:
+        console.print(f"[yellow]{e}[/]")
+        return
+
     # Verbose mode: show what was retrieved
     if verbose and sources:
         console.print(f"\n[bold cyan]Retrieved {len(sources)} chunks:[/]")
@@ -155,7 +138,7 @@ def query(question: str, show_sources: bool, mode: str, verbose: bool, filter_ti
 @click.confirmation_option(prompt="Are you sure you want to clear the vector store?")
 def clear():
     """Clear all data from the vector store."""
-    if clear_vector_store():
+    if clear_documents():
         console.print("[green]Vector store cleared successfully.[/]")
     else:
         console.print("[yellow]Vector store was already empty.[/]")
@@ -164,17 +147,15 @@ def clear():
 @main.command()
 def status():
     """Show the current status of the RAG agent."""
-    doc_count = get_document_count()
-    notion_configured = bool(NOTION_TOKEN and NOTION_DATABASE_ID)
-    
+    status_data = get_status()
     console.print("\n[bold]RAG Agent Status[/]\n")
-    console.print(f"  Documents directory: {DOCS_DIR}")
-    console.print(f"  Notion configured: {'Yes' if notion_configured else 'No'}")
-    if notion_configured:
-        console.print(f"  Notion database: {NOTION_DATABASE_ID[:8]}...")
-    console.print(f"  Chunks in vector store: {doc_count}")
-    console.print(f"  Embedding model: {EMBEDDING_MODEL}")
-    console.print(f"  LLM model: {LLM_MODEL}")
+    console.print(f"  Documents directory: {status_data['documents_directory']}")
+    console.print(f"  Notion configured: {'Yes' if status_data['notion_configured'] else 'No'}")
+    if status_data["notion_configured"]:
+        console.print(f"  Notion database: {status_data['notion_database_id'][:8]}...")
+    console.print(f"  Chunks in vector store: {status_data['chunk_count']}")
+    console.print(f"  Embedding model: {status_data['embedding_model']}")
+    console.print(f"  LLM model: {status_data['llm_model']}")
     console.print()
 
 

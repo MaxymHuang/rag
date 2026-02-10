@@ -1,115 +1,167 @@
 # RAG Agent
 
-A CLI-based RAG (Retrieval-Augmented Generation) agent using Ollama for local LLM inference and ChromaDB for vector storage.
+RAG (Retrieval-Augmented Generation) project with three interfaces over the same backend logic:
+- CLI (`uv run rag ...`)
+- FastAPI server (`uv run rag-api`)
+- React + TypeScript + Tailwind UI (`frontend/`)
+
+## Architecture
+
+```mermaid
+flowchart TD
+  subgraph uiLayer [Frontend]
+    reactApp[ReactApp]
+  end
+
+  subgraph apiLayer [BackendAPI]
+    fastApi[FastAPI]
+    ingestManager[IngestJobManager]
+    sseEndpoint[SSEEndpoint]
+  end
+
+  subgraph serviceLayer [SharedServices]
+    ragService[RagService]
+  end
+
+  subgraph dataLayer [DataAndModels]
+    localLoader[DocumentLoader]
+    notionLoader[NotionLoader]
+    vectorStore[VectorStore]
+    ragChain[RagChain]
+    chromaDb[ChromaDB]
+    llmModel[LLMModel]
+    embedModel[EmbeddingModel]
+  end
+
+  subgraph cliLayer [CLI]
+    cliCmd[CLICmd]
+  end
+
+  reactApp -->|"POST /chat"| fastApi
+  reactApp -->|"POST /ingest"| fastApi
+  reactApp -->|"GET /ingest/{jobId}/events"| sseEndpoint
+  reactApp -->|"GET /status"| fastApi
+  reactApp -->|"POST /clear"| fastApi
+
+  fastApi --> ragService
+  fastApi --> ingestManager
+  sseEndpoint --> ingestManager
+  ingestManager --> ragService
+
+  ragService --> localLoader
+  ragService --> notionLoader
+  ragService --> vectorStore
+  ragService --> ragChain
+
+  vectorStore --> chromaDb
+  vectorStore --> embedModel
+  ragChain --> llmModel
+  ragChain --> vectorStore
+
+  cliCmd --> ragService
+```
 
 ## Prerequisites
 
-1. **Ollama** installed and running: https://ollama.ai
-2. **Python 3.10+**
-3. **uv** package manager
-
-Pull the required models:
-
-```bash
-ollama pull llama3.2
-ollama pull nomic-embed-text
-```
+1. **Python 3.10+**
+2. **uv** package manager
+3. **Ollama** installed and running: https://ollama.ai
+4. **Node.js 18+** (for frontend)
 
 ## Installation
+
+Install backend dependencies:
 
 ```bash
 uv sync
 ```
 
-## Usage
-
-### Ingest Documents
-
-Process and index documents from local files and/or Notion:
+Install frontend dependencies:
 
 ```bash
-# Ingest from all sources (local + Notion)
+cd frontend
+npm install
+```
+
+## CLI Usage
+
+### Ingest documents
+
+```bash
 uv run rag ingest
-
-# Ingest from local files only
 uv run rag ingest --source local
-
-# Ingest from Notion only
 uv run rag ingest --source notion
 ```
 
-### Query Documents
-
-Ask questions about your documents:
+### Query documents
 
 ```bash
 uv run rag query "What powers does Congress have?"
-```
-
-Show source documents with your answer:
-
-```bash
 uv run rag query "What is the role of the President?" --show-sources
 ```
 
-### Check Status
-
-View the current state of the RAG agent:
+### Status and clear
 
 ```bash
 uv run rag status
+uv run rag clear
 ```
 
-### Clear Vector Store
+## API Usage
 
-Remove all indexed documents:
+Run API server:
 
 ```bash
-uv run rag clear
+uv run rag-api
+```
+
+Endpoints:
+- `GET /health`
+- `GET /status`
+- `POST /clear`
+- `POST /chat`
+- `POST /ingest` (starts async ingestion job)
+- `GET /ingest/{job_id}` (job snapshot)
+- `GET /ingest/{job_id}/events` (SSE progress stream)
+
+### Ingestion flow
+
+1. `POST /ingest` with `{"source":"all"|"local"|"notion"}`.
+2. Receive `job_id`.
+3. Subscribe to `GET /ingest/{job_id}/events`.
+4. Update UI progress bar from SSE event payload (`status`, `progress`, `stage`, `message`).
+
+## Frontend Usage
+
+```bash
+cd frontend
+npm run dev
+```
+
+Set API URL (optional):
+
+```bash
+# frontend/.env
+VITE_API_BASE_URL=http://127.0.0.1:8001
 ```
 
 ## Notion Integration
 
-To load documents from a Notion database:
+To ingest from Notion, create `.env` in the project root:
 
-1. Create an integration at https://www.notion.so/my-integrations
-2. Share your target Notion database with the integration (click "..." > "Connections" > select your integration)
-3. Create a `.env` file in the project root:
-
-```
+```bash
 NOTION_TOKEN=secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 NOTION_DATABASE_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
-The database ID can be found in the Notion database URL (the 32-character hex string after the workspace name).
-
-Each row in the database becomes a document. Both page properties (columns) and page content (body) are extracted.
+Then share your target Notion database with your integration.
 
 ## Configuration
 
-Edit `src/config.py` to customize:
-
-- `EMBEDDING_MODEL`: Ollama embedding model (default: `nomic-embed-text`)
-- `LLM_MODEL`: Ollama LLM model (default: `llama3.2`)
-- `CHUNK_SIZE`: Document chunk size (default: 500)
-- `CHUNK_OVERLAP`: Overlap between chunks (default: 50)
-- `TOP_K_RESULTS`: Number of documents to retrieve (default: 4)
-
-## Project Structure
-
-```
-rag/
-├── pyproject.toml          # Project configuration
-├── README.md
-├── agent-doc/              # Local source documents
-├── src/
-│   ├── cli.py              # CLI entry point
-│   ├── config.py           # Configuration settings
-│   ├── document_loader.py  # Local document loading/chunking
-│   ├── notion_loader.py    # Notion API document loading
-│   ├── embeddings.py       # Ollama embeddings
-│   ├── vector_store.py     # ChromaDB operations
-│   └── rag_chain.py        # RAG query chain
-└── data/
-    └── chroma_db/          # Persistent vector storage
-```
+Edit `src/config.py`:
+- `EMBEDDING_MODEL`
+- `EMBEDDING_DEVICE` (examples: `cuda:0`, `cuda:1`, `cpu`)
+- `LLM_MODEL`
+- `CHUNK_SIZE`
+- `CHUNK_OVERLAP`
+- `TOP_K_RESULTS`

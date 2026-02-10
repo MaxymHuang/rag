@@ -16,7 +16,8 @@ CHROMA_DB_DIR = DATA_DIR / "chroma_db"
 
 # Embedding model (HuggingFace)
 EMBEDDING_MODEL = "BAAI/bge-large-en-v1.5"
-LLM_MODEL = "hf.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF:Q4_K_M"
+EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cuda:0")
+LLM_MODEL = "hf.co/unsloth/gpt-oss-20b-GGUF:Q4_K_M"
 OLLAMA_BASE_URL = "http://localhost:11434"
 
 # Chunking settings

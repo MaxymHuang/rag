@@ -42,3 +42,7 @@ Thumbs.db
 
 # Documents
 /agent-doc/
+
+# Frontend assets
+node_modules/
+
