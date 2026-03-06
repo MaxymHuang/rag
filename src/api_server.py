@@ -51,7 +51,10 @@ def status() -> StatusResponse:
 
 @app.post("/clear", response_model=ClearResponse)
 def clear() -> ClearResponse:
-    return ClearResponse(cleared=clear_documents())
+    try:
+        return ClearResponse(cleared=clear_documents())
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -62,6 +65,7 @@ def chat(payload: ChatRequest) -> ChatResponse:
             search_mode=payload.mode,
             title_filter=payload.filter_title,
             history=[{"role": item.role, "content": item.content} for item in payload.history],
+            context_sources=payload.context_sources,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

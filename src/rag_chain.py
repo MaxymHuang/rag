@@ -77,6 +77,7 @@ def format_context(documents: list[Document]) -> str:
 
 
 SearchMode = Literal["hybrid", "vector", "keyword"]
+ContextSource = Literal["local", "notion"]
 HistoryMessage = dict[str, str]
 
 
@@ -100,7 +101,8 @@ def query_rag(
     k: int = TOP_K_RESULTS,
     search_mode: SearchMode = "hybrid",
     title_filter: str | None = None,
-    history: list[HistoryMessage] | None = None
+    history: list[HistoryMessage] | None = None,
+    context_sources: list[ContextSource] | None = None,
 ) -> tuple[str, list[Document]]:
     """
     Query the RAG system.
@@ -116,11 +118,11 @@ def query_rag(
     """
     # Retrieve relevant documents based on search mode
     if search_mode == "hybrid":
-        documents = hybrid_search(question, k=k, title_filter=title_filter)
+        documents = hybrid_search(question, k=k, title_filter=title_filter, context_sources=context_sources)
     elif search_mode == "keyword":
-        documents = keyword_search(question, k=k, title_filter=title_filter)
+        documents = keyword_search(question, k=k, title_filter=title_filter, context_sources=context_sources)
     else:  # vector
-        documents = similarity_search(question, k=k, title_filter=title_filter)
+        documents = similarity_search(question, k=k, title_filter=title_filter, context_sources=context_sources)
     
     # Format context
     context = format_context(documents)

@@ -1,8 +1,13 @@
 """ChromaDB vector store operations with hybrid search."""
 
+import gc
+import os
 import shutil
+import stat
 import threading
+import time
 from collections import defaultdict
+from typing import Literal
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -16,6 +21,7 @@ _bm25_retriever = None
 _all_documents = []
 _vector_store: Chroma | None = None
 _vector_store_lock = threading.Lock()
+ContextSource = Literal["local", "notion"]
 
 
 def get_vector_store() -> Chroma:
@@ -90,10 +96,30 @@ def _build_title_filter(title_filter: str | None) -> dict | None:
     return {"title": {"$contains": title_filter.lower()}}
 
 
+def _is_notion_doc(doc: Document) -> bool:
+    """Classify Notion documents using source prefix or file type metadata."""
+    source = str(doc.metadata.get("source", "")).lower()
+    file_type = str(doc.metadata.get("file_type", "")).lower()
+    return source.startswith("notion:") or file_type == "notion"
+
+
+def _matches_source_filter(doc: Document, context_sources: set[ContextSource] | None) -> bool:
+    """Return True when document belongs to one of selected context sources."""
+    if not context_sources:
+        return True
+    is_notion = _is_notion_doc(doc)
+    if is_notion and "notion" in context_sources:
+        return True
+    if not is_notion and "local" in context_sources:
+        return True
+    return False
+
+
 def similarity_search(
     query: str, 
     k: int = TOP_K_RESULTS,
-    title_filter: str | None = None
+    title_filter: str | None = None,
+    context_sources: list[ContextSource] | None = None,
 ) -> list[Document]:
     """Search for similar documents using vector similarity only.
     
@@ -104,17 +130,23 @@ def similarity_search(
     """
     vector_store = get_vector_store()
     filter_dict = _build_title_filter(title_filter)
-    
+    source_filter = set(context_sources) if context_sources else None
+    fetch_k = max(k * 4, 20)
+
     if filter_dict:
-        return vector_store.similarity_search(query, k=k, filter=filter_dict)
-    return vector_store.similarity_search(query, k=k)
+        docs = vector_store.similarity_search(query, k=fetch_k, filter=filter_dict)
+    else:
+        docs = vector_store.similarity_search(query, k=fetch_k)
+
+    return [doc for doc in docs if _matches_source_filter(doc, source_filter)][:k]
 
 
 def hybrid_search(
     query: str, 
     k: int = TOP_K_RESULTS, 
     vector_weight: float = 0.5,
-    title_filter: str | None = None
+    title_filter: str | None = None,
+    context_sources: list[ContextSource] | None = None,
 ) -> list[Document]:
     """
     Hybrid search combining vector similarity (semantic) and BM25 (keyword).
@@ -132,17 +164,20 @@ def hybrid_search(
     
     vector_store = get_vector_store()
     filter_dict = _build_title_filter(title_filter)
+    source_filter = set(context_sources) if context_sources else None
+    fetch_k = max(k * 4, 20)
     
     # Get vector search results (with optional filter)
     if filter_dict:
-        vector_results = vector_store.similarity_search(query, k=k * 2, filter=filter_dict)
+        vector_results = vector_store.similarity_search(query, k=fetch_k, filter=filter_dict)
     else:
-        vector_results = vector_store.similarity_search(query, k=k * 2)
+        vector_results = vector_store.similarity_search(query, k=fetch_k)
+    vector_results = [doc for doc in vector_results if _matches_source_filter(doc, source_filter)]
     
     # Get BM25 results and filter by title if needed
     bm25_results = []
     if _bm25_retriever is not None:
-        _bm25_retriever.k = k * 2
+        _bm25_retriever.k = fetch_k
         bm25_results = _bm25_retriever.invoke(query)
         
         # Apply title filter to BM25 results (BM25 doesn't support native filtering)
@@ -152,6 +187,7 @@ def hybrid_search(
                 doc for doc in bm25_results 
                 if title_lower in doc.metadata.get("title", "").lower()
             ]
+        bm25_results = [doc for doc in bm25_results if _matches_source_filter(doc, source_filter)]
     
     if not bm25_results:
         return vector_results[:k]
@@ -183,7 +219,8 @@ def hybrid_search(
 def keyword_search(
     query: str, 
     k: int = TOP_K_RESULTS,
-    title_filter: str | None = None
+    title_filter: str | None = None,
+    context_sources: list[ContextSource] | None = None,
 ) -> list[Document]:
     """Pure keyword-based BM25 search (good for exact matches, dates, codes).
     
@@ -197,7 +234,7 @@ def keyword_search(
     if _bm25_retriever is None:
         return []
     
-    _bm25_retriever.k = k
+    _bm25_retriever.k = max(k * 4, 20)
     results = _bm25_retriever.invoke(query)
     
     # Apply title filter (BM25 doesn't support native filtering)
@@ -207,6 +244,8 @@ def keyword_search(
             doc for doc in results 
             if title_lower in doc.metadata.get("title", "").lower()
         ]
+    source_filter = set(context_sources) if context_sources else None
+    results = [doc for doc in results if _matches_source_filter(doc, source_filter)]
     
     return results[:k]
 
@@ -217,12 +256,56 @@ def clear_vector_store() -> bool:
 
     _bm25_retriever = None
     _all_documents = []
-    _vector_store = None
 
-    if CHROMA_DB_DIR.exists():
-        shutil.rmtree(CHROMA_DB_DIR)
-        return True
-    return False
+    with _vector_store_lock:
+        previous_store = _vector_store
+        _vector_store = None
+
+    if previous_store is not None:
+        client = getattr(previous_store, "_client", None)
+        if client is not None:
+            try:
+                delete_collection = getattr(client, "delete_collection", None)
+                if callable(delete_collection):
+                    delete_collection(name=COLLECTION_NAME)
+            except Exception:  # noqa: BLE001
+                # Best effort only; directory deletion below is the source of truth.
+                pass
+            for method_name in ("persist", "close"):
+                try:
+                    method = getattr(client, method_name, None)
+                    if callable(method):
+                        method()
+                except Exception:  # noqa: BLE001
+                    pass
+        del previous_store
+
+    gc.collect()
+
+    if not CHROMA_DB_DIR.exists():
+        return False
+
+    def _handle_remove_readonly(func, path, exc_info):  # type: ignore[no-untyped-def]
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except Exception:  # noqa: BLE001
+            raise
+
+    attempts = 6
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            shutil.rmtree(CHROMA_DB_DIR, onerror=_handle_remove_readonly)
+            return True
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(0.15 * (attempt + 1))
+        except OSError as exc:
+            last_error = exc
+            time.sleep(0.15 * (attempt + 1))
+
+    raise RuntimeError(f"Failed to clear vector store at '{CHROMA_DB_DIR}': {last_error}") from last_error
 
 
 def get_document_count() -> int:

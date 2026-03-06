@@ -2,11 +2,12 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { createIngestEventSource, fetchModels, fetchStatus, selectModel, sendChat, startIngest } from "./api";
-import type { ChatRole, IngestEvent, IngestSource, QueryMode, StatusResponse } from "./types";
+import { clearIngestedData, createIngestEventSource, fetchModels, fetchStatus, selectModel, sendChat, startIngest } from "./api";
+import type { ChatRole, ContextSource, IngestEvent, IngestSource, QueryMode, StatusResponse } from "./types";
 
 const SEARCH_MODES: QueryMode[] = ["hybrid", "vector", "keyword"];
 const INGEST_SOURCES: IngestSource[] = ["all", "local", "notion"];
+const CONTEXT_SOURCES: ContextSource[] = ["local", "notion"];
 
 interface ChatMessage {
   id: number;
@@ -36,11 +37,17 @@ export default function App() {
   const [ingestMessage, setIngestMessage] = useState("Waiting");
   const [ingestProgress, setIngestProgress] = useState(0);
   const [ingestError, setIngestError] = useState("");
+  const [clearLoading, setClearLoading] = useState(false);
+  const [clearError, setClearError] = useState("");
+  const [contextSources, setContextSources] = useState<ContextSource[]>(["local", "notion"]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const messageIdRef = useRef(1);
 
-  const canAsk = useMemo(() => question.trim().length > 0 && !chatLoading, [chatLoading, question]);
+  const canAsk = useMemo(
+    () => question.trim().length > 0 && !chatLoading && contextSources.length > 0,
+    [chatLoading, contextSources.length, question]
+  );
   const isBackendReady =
     status !== null &&
     status.chunk_count > 0 &&
@@ -67,14 +74,17 @@ export default function App() {
     }
   }
 
-  async function loadModels() {
+  async function loadModels(showError = true) {
     try {
       setModelError("");
       const data = await fetchModels();
       setModels(data.available);
       setSelectedModel(data.current);
+      setStatus((previous) => (previous ? { ...previous, llm_model: data.current } : previous));
     } catch (error) {
-      setModelError(error instanceof Error ? error.message : "Failed to load model options");
+      if (showError) {
+        setModelError(error instanceof Error ? error.message : "Failed to load model options");
+      }
     }
   }
 
@@ -83,6 +93,20 @@ export default function App() {
     void loadModels();
     return () => {
       eventSourceRef.current?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    const pollId = window.setInterval(() => {
+      void loadModels(false);
+    }, 15000);
+    const onFocus = () => {
+      void loadModels(false);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(pollId);
+      window.removeEventListener("focus", onFocus);
     };
   }, []);
 
@@ -117,7 +141,8 @@ export default function App() {
         mode,
         showSources,
         filterTitle: filterTitle.trim() || undefined,
-        history: currentHistory
+        history: currentHistory,
+        contextSources
       });
       const assistantMessage: ChatMessage = {
         id: thinkingMessageId,
@@ -185,30 +210,65 @@ export default function App() {
     }
   }
 
+  function onToggleContextSource(source: ContextSource) {
+    setContextSources((previous) => {
+      if (previous.includes(source)) {
+        if (previous.length === 1) {
+          return previous;
+        }
+        return previous.filter((item) => item !== source);
+      }
+      return [...previous, source];
+    });
+  }
+
+  async function onClearIngest() {
+    try {
+      setClearLoading(true);
+      setClearError("");
+      setIngestError("");
+      eventSourceRef.current?.close();
+      await clearIngestedData();
+      setIngestJobId("");
+      setIngestStatus("idle");
+      setIngestMessage("Vector store cleared");
+      setIngestProgress(0);
+      await loadStatus();
+    } catch (error) {
+      setClearError(error instanceof Error ? error.message : "Unable to clear ingested data");
+    } finally {
+      setClearLoading(false);
+    }
+  }
+
+  const panelClass = "rounded-2xl border border-neutral-800 bg-black p-5 shadow-sm";
+  const inputClass =
+    "rounded-xl border border-neutral-700 bg-black px-3 py-2 text-sm text-white outline-none transition-all duration-200 focus:border-neutral-500 focus:ring-2 focus:ring-neutral-700/70";
+
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
-        <header className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <h1 className="text-2xl font-semibold">AXI Expert</h1>
-          <p className="text-sm text-slate-400">Chat over local + Notion documents with ingestion progress tracking.</p>
+    <main className="min-h-screen bg-black text-white">
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
+        <header className={panelClass}>
+          <h1 className="text-2xl font-semibold tracking-tight text-white">AXI Expert</h1>
+          <p className="mt-1 text-sm text-neutral-400">Chat over local and Notion documents with live ingestion tracking.</p>
         </header>
 
-        <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <section className={panelClass}>
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-medium">Agent Status</h2>
               {isBackendReady ? (
-                <span className="rounded-full bg-emerald-600/20 px-2 py-0.5 text-xs font-medium text-emerald-300 ring-1 ring-emerald-500/40">
+                <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-xs font-medium text-white ring-1 ring-neutral-700">
                   Ready
                 </span>
               ) : (
-                <span className="rounded-full bg-red-600/20 px-2 py-0.5 text-xs font-medium text-red-300 ring-1 ring-red-500/40">
+                <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-xs font-medium text-neutral-200 ring-1 ring-neutral-700">
                   Not Ready
                 </span>
               )}
             </div>
             <button
-              className="rounded bg-slate-700 px-3 py-1 text-sm hover:bg-slate-600"
+              className="rounded-xl border border-neutral-700 bg-black px-3 py-1.5 text-sm text-white transition hover:bg-neutral-900"
               onClick={() => void loadStatus()}
               type="button"
             >
@@ -216,29 +276,27 @@ export default function App() {
             </button>
           </div>
           {statusError ? (
-            <p className="text-sm text-red-400">{statusError}</p>
+            <p className="text-sm text-white">{statusError}</p>
           ) : status ? (
             <>
-              <div className="grid gap-2 text-sm text-slate-300 md:grid-cols-2">
+              <div className="grid gap-2 text-sm text-neutral-300 md:grid-cols-2">
                 <p>Chunks: {status.chunk_count}</p>
                 <p>Notion configured: {status.notion_configured ? "Yes" : "No"}</p>
                 <p className="truncate">Embedding model: {status.embedding_model}</p>
                 <p className="truncate">LLM model: {status.llm_model}</p>
               </div>
-              {!isBackendReady ? (
-                <p className="mt-3 text-sm text-red-300">Missing: {missingReadinessItems.join(", ")}</p>
-              ) : null}
+              {!isBackendReady ? <p className="mt-3 text-sm text-white">Missing: {missingReadinessItems.join(", ")}</p> : null}
             </>
           ) : (
-            <p className="text-sm text-slate-400">Loading status...</p>
+            <p className="text-sm text-neutral-400">Loading status...</p>
           )}
         </section>
 
-        <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <section className={panelClass}>
           <h2 className="mb-3 text-lg font-medium">Ingest Documents</h2>
           <div className="flex flex-wrap items-center gap-3">
             <select
-              className="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
+              className={inputClass}
               value={ingestSource}
               onChange={(event) => setIngestSource(event.target.value as IngestSource)}
             >
@@ -248,38 +306,51 @@ export default function App() {
                 </option>
               ))}
             </select>
-            <button className="rounded bg-blue-600 px-4 py-2 text-sm hover:bg-blue-500" type="button" onClick={onStartIngest}>
+            <button
+              className="rounded-xl border border-neutral-600 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-neutral-200"
+              type="button"
+              onClick={onStartIngest}
+            >
               Ingest
             </button>
+            <button
+              className="rounded-xl border border-neutral-700 bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              onClick={() => void onClearIngest()}
+              disabled={clearLoading}
+            >
+              {clearLoading ? "Clearing..." : "Clear"}
+            </button>
           </div>
-          <div className="mt-4 h-3 w-full overflow-hidden rounded bg-slate-800">
+          <div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-neutral-900">
             <div
-              className="h-full bg-emerald-500 transition-all duration-300"
+              className="h-full bg-white transition-all duration-300"
               style={{ width: `${Math.max(0, Math.min(100, ingestProgress))}%` }}
             />
           </div>
-          <p className="mt-2 text-sm text-slate-300">
+          <p className="mt-2 text-sm text-neutral-300">
             {ingestStatus} ({ingestProgress}%): {ingestMessage}
           </p>
-          {ingestJobId ? <p className="text-xs text-slate-500">Job: {ingestJobId}</p> : null}
-          {ingestError ? <p className="text-sm text-red-400">{ingestError}</p> : null}
+          {ingestJobId ? <p className="text-xs text-neutral-500">Job: {ingestJobId}</p> : null}
+          {ingestError ? <p className="mt-1 text-sm text-white">{ingestError}</p> : null}
+          {clearError ? <p className="mt-1 text-sm text-white">{clearError}</p> : null}
         </section>
 
-        <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+        <section className={panelClass}>
           <h2 className="mb-3 text-lg font-medium">Chat</h2>
-          {chatError ? <p className="mt-3 text-sm text-red-400">{chatError}</p> : null}
-          {modelError ? <p className="mt-3 text-sm text-red-400">{modelError}</p> : null}
+          {chatError ? <p className="mb-2 text-sm text-white">{chatError}</p> : null}
+          {modelError ? <p className="mb-2 text-sm text-white">{modelError}</p> : null}
           <div className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
             {messages.map((message) => (
               <article
-                className={`rounded border p-4 ${
+                className={`rounded-2xl border p-4 transition-all ${
                   message.role === "user"
-                    ? "border-blue-700 bg-blue-950/40"
-                    : "border-slate-700 bg-slate-800"
+                    ? "border-neutral-700 bg-neutral-950"
+                    : "border-neutral-800 bg-black"
                 }`}
                 key={message.id}
               >
-                <p className="mb-2 text-xs uppercase tracking-wide text-slate-400">{message.role}</p>
+                <p className="mb-2 text-xs uppercase tracking-wide text-neutral-400">{message.role}</p>
                 {message.role === "assistant" ? (
                   <div className="prose prose-invert prose-sm max-w-none break-words">
                     <ReactMarkdown
@@ -287,9 +358,7 @@ export default function App() {
                       components={{
                         table: ({ children }) => (
                           <div className="my-3 overflow-x-auto">
-                            <table className="min-w-full border-collapse border border-slate-600 text-left text-xs">
-                              {children}
-                            </table>
+                            <table className="min-w-full border-collapse border border-slate-600 text-left text-xs">{children}</table>
                           </div>
                         ),
                         th: ({ children }) => <th className="border border-slate-600 bg-slate-700/70 px-2 py-1">{children}</th>,
@@ -298,13 +367,13 @@ export default function App() {
                           const isBlock = className?.includes("language-");
                           if (isBlock) {
                             return (
-                              <code className="block overflow-x-auto rounded bg-slate-950 px-3 py-2 text-slate-100" {...props}>
+                              <code className="block overflow-x-auto rounded-xl bg-black px-3 py-2 text-white" {...props}>
                                 {children}
                               </code>
                             );
                           }
                           return (
-                            <code className="rounded bg-slate-700/60 px-1 py-0.5 text-slate-100" {...props}>
+                            <code className="rounded bg-neutral-800 px-1 py-0.5 text-white" {...props}>
                               {children}
                             </code>
                           );
@@ -317,17 +386,17 @@ export default function App() {
                     </ReactMarkdown>
                   </div>
                 ) : (
-                  <p className="whitespace-pre-wrap text-sm text-slate-200">{message.content}</p>
+                  <p className="whitespace-pre-wrap text-sm text-white">{message.content}</p>
                 )}
                 {message.role === "assistant" && message.sources.length > 0 ? (
-                  <details className="mt-3 rounded border border-slate-700 bg-slate-900 p-2">
-                    <summary className="cursor-pointer text-sm font-medium text-slate-200">Reference</summary>
+                  <details className="mt-3 rounded-xl border border-neutral-800 bg-black p-2">
+                    <summary className="cursor-pointer text-sm font-medium text-neutral-200">Reference</summary>
                     <div className="mt-2 space-y-2">
                       {message.sources.map((source, idx) => (
-                        <div className="rounded border border-slate-700 bg-slate-800 p-3 text-sm" key={`${source.source}-${idx}`}>
-                          <p className="font-medium text-slate-100">{source.source}</p>
-                          {source.title ? <p className="text-slate-400">title: {source.title}</p> : null}
-                          <p className="mt-1 text-slate-300">{source.content_preview}</p>
+                        <div className="rounded-xl border border-neutral-800 bg-neutral-950 p-3 text-sm" key={`${source.source}-${idx}`}>
+                          <p className="font-medium text-white">{source.source}</p>
+                          {source.title ? <p className="text-neutral-400">title: {source.title}</p> : null}
+                          <p className="mt-1 text-neutral-300">{source.content_preview}</p>
                         </div>
                       ))}
                     </div>
@@ -336,19 +405,15 @@ export default function App() {
               </article>
             ))}
           </div>
-          <form className="mt-4 space-y-3 border-t border-slate-800 pt-4" onSubmit={onSubmitChat}>
+          <form className="mt-4 space-y-3 border-t border-neutral-800 pt-4" onSubmit={onSubmitChat}>
             <textarea
-              className="min-h-24 w-full rounded border border-slate-700 bg-slate-800 p-3 text-sm"
+              className="min-h-24 w-full rounded-xl border border-neutral-700 bg-black p-3 text-sm text-white outline-none transition-all focus:border-neutral-500 focus:ring-2 focus:ring-neutral-700/70"
               placeholder="Ask about your indexed documents..."
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
             />
             <div className="flex flex-wrap items-center gap-3">
-              <select
-                className="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
-                value={mode}
-                onChange={(event) => setMode(event.target.value as QueryMode)}
-              >
+              <select className={inputClass} value={mode} onChange={(event) => setMode(event.target.value as QueryMode)}>
                 {SEARCH_MODES.map((searchMode) => (
                   <option key={searchMode} value={searchMode}>
                     {searchMode}
@@ -356,17 +421,30 @@ export default function App() {
                 ))}
               </select>
               <input
-                className="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm"
+                className={inputClass}
                 placeholder="Optional title filter"
                 value={filterTitle}
                 onChange={(event) => setFilterTitle(event.target.value)}
               />
-              <label className="flex items-center gap-2 text-sm text-slate-300">
+              <div className="flex items-center gap-2 rounded-xl border border-neutral-800 bg-black px-3 py-2">
+                <span className="text-xs uppercase tracking-wide text-neutral-400">Context</span>
+                {CONTEXT_SOURCES.map((source) => (
+                  <label className="flex items-center gap-1 text-xs text-neutral-200" key={source}>
+                    <input
+                      checked={contextSources.includes(source)}
+                      onChange={() => onToggleContextSource(source)}
+                      type="checkbox"
+                    />
+                    {source}
+                  </label>
+                ))}
+              </div>
+              <label className="flex items-center gap-2 text-sm text-neutral-300">
                 <input checked={showSources} onChange={(event) => setShowSources(event.target.checked)} type="checkbox" />
                 Show sources
               </label>
               <select
-                className="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm disabled:opacity-50"
+                className={`${inputClass} disabled:opacity-50`}
                 value={selectedModel}
                 disabled={modelLoading || models.length === 0}
                 onChange={(event) => void onSelectModel(event.target.value)}
@@ -379,7 +457,7 @@ export default function App() {
               </select>
               <button
                 aria-label="Send"
-                className="inline-flex items-center justify-center rounded bg-emerald-600 px-3 py-2 text-sm disabled:opacity-50"
+                className="inline-flex items-center justify-center rounded-xl border border-neutral-600 bg-white px-3 py-2 text-sm text-black transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={!canAsk}
                 type="submit"
               >

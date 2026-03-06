@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 IngestSource = Literal["all", "local", "notion"]
 QueryMode = Literal["hybrid", "vector", "keyword"]
 ChatRole = Literal["user", "assistant"]
+ContextSource = Literal["local", "notion"]
 
 
 class ChatMessage(BaseModel):
@@ -21,6 +22,7 @@ class ChatRequest(BaseModel):
     show_sources: bool = False
     filter_title: str | None = None
     history: list[ChatMessage] = Field(default_factory=list)
+    context_sources: list[ContextSource] = Field(default_factory=lambda: ["local", "notion"])
 
 
 class SourceItem(BaseModel):

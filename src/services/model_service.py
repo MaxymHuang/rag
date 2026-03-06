@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.config import AVAILABLE_LLM_MODELS, PROJECT_ROOT, get_llm_model, set_llm_model
+from ollama import Client
+
+from src.config import AVAILABLE_LLM_MODELS, OLLAMA_BASE_URL, PROJECT_ROOT, get_llm_model, set_llm_model
 
 
 def _parse_available_models(raw: str) -> list[str]:
@@ -20,10 +22,41 @@ def _parse_available_models(raw: str) -> list[str]:
     return deduped
 
 
+def _fetch_ollama_models() -> list[str]:
+    """Fetch currently available model names from the running Ollama instance."""
+    try:
+        response = Client(host=OLLAMA_BASE_URL).list()
+    except Exception:  # noqa: BLE001
+        return []
+
+    if isinstance(response, dict):
+        raw_models = response.get("models", [])
+    else:
+        raw_models = getattr(response, "models", [])
+
+    names: list[str] = []
+    for item in raw_models:
+        name = ""
+        if isinstance(item, dict):
+            name = str(item.get("model") or item.get("name") or "").strip()
+        else:
+            name = str(getattr(item, "model", "") or getattr(item, "name", "")).strip()
+        if name:
+            names.append(name)
+    return _parse_available_models(",".join(names))
+
+
 def get_models() -> dict[str, object]:
     """Return the current model and selectable model options."""
-    current = get_llm_model()
-    available = _parse_available_models(AVAILABLE_LLM_MODELS)
+    current = get_llm_model().strip()
+    from_ollama = _fetch_ollama_models()
+    from_env = _parse_available_models(AVAILABLE_LLM_MODELS)
+
+    available = list(from_ollama)
+    for model_name in from_env:
+        if model_name not in available:
+            available.append(model_name)
+
     if current not in available:
         available.append(current)
     return {"current": current, "available": available}

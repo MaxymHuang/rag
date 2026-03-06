@@ -1,5 +1,6 @@
 export type QueryMode = "hybrid" | "vector" | "keyword";
 export type IngestSource = "all" | "local" | "notion";
+export type ContextSource = "local" | "notion";
 export type ChatRole = "user" | "assistant";
 
 export interface SourceItem {
@@ -16,6 +17,15 @@ export interface ChatResponse {
 export interface ChatMessage {
   role: ChatRole;
   content: string;
+}
+
+export interface ChatRequest {
+  question: string;
+  mode: QueryMode;
+  showSources: boolean;
+  filterTitle?: string;
+  history?: ChatMessage[];
+  contextSources?: ContextSource[];
 }
 
 export interface StatusResponse {
@@ -47,5 +57,9 @@ export interface IngestEvent {
 export interface ModelsResponse {
   current: string;
   available: string[];
+}
+
+export interface ClearResponse {
+  cleared: boolean;
 }
 

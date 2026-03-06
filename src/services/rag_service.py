@@ -15,6 +15,7 @@ from src.vision_captioner import caption_visual_artifacts
 
 IngestSource = Literal["all", "local", "notion"]
 QueryMode = Literal["hybrid", "vector", "keyword"]
+ContextSource = Literal["local", "notion"]
 ProgressCallback = Callable[[str, int, str], None]
 _embedding_work_lock = threading.Lock()
 
@@ -140,15 +141,28 @@ def query_documents(
     search_mode: QueryMode = "hybrid",
     title_filter: str | None = None,
     history: list[dict[str, str]] | None = None,
+    context_sources: list[ContextSource] | None = None,
 ) -> tuple[str, list[Document]]:
     """Query the RAG chain after ensuring the vector store is populated."""
     doc_count = get_document_count()
     if doc_count == 0:
         raise ValueError("No documents in vector store. Run ingest first.")
     if search_mode == "keyword":
-        return query_rag(question, search_mode=search_mode, title_filter=title_filter, history=history)
+        return query_rag(
+            question,
+            search_mode=search_mode,
+            title_filter=title_filter,
+            history=history,
+            context_sources=context_sources,
+        )
     with _embedding_work_lock:
-        return query_rag(question, search_mode=search_mode, title_filter=title_filter, history=history)
+        return query_rag(
+            question,
+            search_mode=search_mode,
+            title_filter=title_filter,
+            history=history,
+            context_sources=context_sources,
+        )
 
 
 def get_status() -> dict:

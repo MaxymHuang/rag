@@ -1,11 +1,11 @@
 import type {
   ChatResponse,
-  ChatMessage,
+  ChatRequest,
+  ClearResponse,
   IngestEvent,
   IngestSource,
   IngestStartResponse,
   ModelsResponse,
-  QueryMode,
   StatusResponse
 } from "./types";
 
@@ -24,13 +24,7 @@ export async function fetchStatus(): Promise<StatusResponse> {
   return readJson<StatusResponse>(response);
 }
 
-export async function sendChat(params: {
-  question: string;
-  mode: QueryMode;
-  showSources: boolean;
-  filterTitle?: string;
-  history?: ChatMessage[];
-}): Promise<ChatResponse> {
+export async function sendChat(params: ChatRequest): Promise<ChatResponse> {
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -39,7 +33,8 @@ export async function sendChat(params: {
       mode: params.mode,
       show_sources: params.showSources,
       filter_title: params.filterTitle || null,
-      history: params.history ?? []
+      history: params.history ?? [],
+      context_sources: params.contextSources ?? ["local", "notion"]
     })
   });
   return readJson<ChatResponse>(response);
@@ -66,6 +61,13 @@ export async function startIngest(source: IngestSource): Promise<IngestStartResp
     body: JSON.stringify({ source })
   });
   return readJson<IngestStartResponse>(response);
+}
+
+export async function clearIngestedData(): Promise<ClearResponse> {
+  const response = await fetch(`${API_BASE_URL}/clear`, {
+    method: "POST"
+  });
+  return readJson<ClearResponse>(response);
 }
 
 export function createIngestEventSource(
