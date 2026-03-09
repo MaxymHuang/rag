@@ -9,6 +9,8 @@ IngestSource = Literal["all", "local", "notion"]
 QueryMode = Literal["hybrid", "vector", "keyword"]
 ChatRole = Literal["user", "assistant"]
 ContextSource = Literal["local", "notion"]
+VectorDbProvider = Literal["chroma"]
+AdminMigrationAction = Literal["reindex", "vector_db_migration"]
 
 
 class ChatMessage(BaseModel):
@@ -80,4 +82,51 @@ class ModelSelectRequest(BaseModel):
 class ModelSelectResponse(BaseModel):
     current: str
     available: list[str]
+
+
+class AccessMetadata(BaseModel):
+    access_mode: str
+    requires_auth: bool
+    permissions: list[str] = Field(default_factory=list)
+
+
+class AdminStatusResponse(StatusResponse):
+    access: AccessMetadata
+
+
+class AdminModelsResponse(ModelsResponse):
+    access: AccessMetadata
+
+
+class AdminSystemConfigResponse(BaseModel):
+    embedding_model: str
+    embedding_model_options: list[str]
+    vector_db_provider: VectorDbProvider
+    vector_db_provider_options: list[VectorDbProvider]
+    migration_supported: bool
+    access: AccessMetadata
+
+
+class AdminSystemConfigUpdateRequest(BaseModel):
+    embedding_model: str | None = None
+    vector_db_provider: VectorDbProvider | None = None
+
+
+class AdminSystemConfigUpdateResponse(BaseModel):
+    applied: bool
+    message: str
+    config: AdminSystemConfigResponse
+
+
+class AdminMigrationRequest(BaseModel):
+    action: AdminMigrationAction
+    source: IngestSource = "all"
+    target_vector_db_provider: VectorDbProvider | None = None
+
+
+class AdminMigrationResponse(BaseModel):
+    started: bool
+    message: str
+    job_id: str | None = None
+    access: AccessMetadata
 

@@ -37,6 +37,16 @@ export interface StatusResponse {
   llm_model: string;
 }
 
+export interface AccessMetadata {
+  accessMode: string;
+  requiresAuth: boolean;
+  permissions: string[];
+}
+
+export interface AdminStatusResponse extends StatusResponse {
+  access: AccessMetadata;
+}
+
 export interface IngestStartResponse {
   job_id: string;
   status: string;
@@ -57,6 +67,47 @@ export interface IngestEvent {
 export interface ModelsResponse {
   current: string;
   available: string[];
+}
+
+export interface AdminModelsResponse extends ModelsResponse {
+  access: AccessMetadata;
+}
+
+export type VectorDbProvider = "chroma";
+
+export interface AdminSystemConfigResponse {
+  embedding_model: string;
+  embedding_model_options: string[];
+  vector_db_provider: VectorDbProvider;
+  vector_db_provider_options: VectorDbProvider[];
+  migration_supported: boolean;
+  access: AccessMetadata;
+}
+
+export interface AdminSystemConfigUpdateRequest {
+  embedding_model?: string;
+  vector_db_provider?: VectorDbProvider;
+}
+
+export interface AdminSystemConfigUpdateResponse {
+  applied: boolean;
+  message: string;
+  config: AdminSystemConfigResponse;
+}
+
+export type AdminMigrationAction = "reindex" | "vector_db_migration";
+
+export interface AdminMigrationRequest {
+  action: AdminMigrationAction;
+  source: IngestSource;
+  target_vector_db_provider?: VectorDbProvider;
+}
+
+export interface AdminMigrationResponse {
+  started: boolean;
+  message: string;
+  job_id?: string | null;
+  access: AccessMetadata;
 }
 
 export interface ClearResponse {

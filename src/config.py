@@ -15,7 +15,8 @@ DATA_DIR = PROJECT_ROOT / "data"
 CHROMA_DB_DIR = DATA_DIR / "chroma_db"
 
 # Embedding model (HuggingFace)
-EMBEDDING_MODEL = "BAAI/bge-large-en-v1.5"
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-large-en-v1.5").strip()
+AVAILABLE_EMBEDDING_MODELS = os.getenv("AVAILABLE_EMBEDDING_MODELS", EMBEDDING_MODEL).strip()
 EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cuda:0")
 EMBEDDING_BATCH_SIZE = max(1, int(os.getenv("EMBEDDING_BATCH_SIZE", "32")))
 EMBEDDING_OOM_RETRY_BATCH_SIZE = max(1, int(os.getenv("EMBEDDING_OOM_RETRY_BATCH_SIZE", "8")))
@@ -37,6 +38,8 @@ TOP_K_RESULTS = 8
 
 # ChromaDB collection name
 COLLECTION_NAME = "agent_docs"
+VECTOR_DB_PROVIDER = os.getenv("VECTOR_DB_PROVIDER", "chroma").strip().lower()
+AVAILABLE_VECTOR_DB_PROVIDERS = os.getenv("AVAILABLE_VECTOR_DB_PROVIDERS", "chroma").strip().lower()
 
 # Supported document extensions
 SUPPORTED_EXTENSIONS = [

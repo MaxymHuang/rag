@@ -2,11 +2,38 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { clearIngestedData, createIngestEventSource, fetchModels, fetchStatus, selectModel, sendChat, startIngest } from "./api";
-import type { ChatRole, ContextSource, IngestEvent, IngestSource, QueryMode, StatusResponse } from "./types";
+import {
+  clearAdminIngestedData,
+  createAdminIngestEventSource,
+  fetchAdminModels,
+  fetchAdminStatus,
+  fetchAdminSystemConfig,
+  runAdminMigration,
+  selectAdminModel,
+  sendChat,
+  startAdminIngest,
+  updateAdminSystemConfig
+} from "./api";
+import { AdminAccessGate } from "./components/admin/AdminAccessGate";
+import { DangerZonePanel } from "./components/admin/DangerZonePanel";
+import { IngestPanel } from "./components/admin/IngestPanel";
+import { MigrationPanel } from "./components/admin/MigrationPanel";
+import { ModelSelectionPanel } from "./components/admin/ModelSelectionPanel";
+import { StatusPanel } from "./components/admin/StatusPanel";
+import { SystemSettingsPanel } from "./components/admin/SystemSettingsPanel";
+import type {
+  AccessMetadata,
+  AdminSystemConfigResponse,
+  AdminStatusResponse,
+  ContextSource,
+  IngestEvent,
+  IngestSource,
+  QueryMode,
+  ChatRole,
+  VectorDbProvider
+} from "./types";
 
 const SEARCH_MODES: QueryMode[] = ["hybrid", "vector", "keyword"];
-const INGEST_SOURCES: IngestSource[] = ["all", "local", "notion"];
 const CONTEXT_SOURCES: ContextSource[] = ["local", "notion"];
 
 interface ChatMessage {
@@ -17,8 +44,7 @@ interface ChatMessage {
 }
 
 export default function App() {
-  const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [statusError, setStatusError] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<"chat" | "admin">("chat");
   const [question, setQuestion] = useState("");
   const [filterTitle, setFilterTitle] = useState("");
   const [mode, setMode] = useState<QueryMode>("hybrid");
@@ -26,11 +52,16 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
+
+  const [adminStatus, setAdminStatus] = useState<AdminStatusResponse | null>(null);
+  const [adminStatusError, setAdminStatusError] = useState("");
+  const [adminAccess, setAdminAccess] = useState<AccessMetadata | null>(null);
+  const [adminAccessLoading, setAdminAccessLoading] = useState(false);
+
   const [models, setModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [modelLoading, setModelLoading] = useState(false);
   const [modelError, setModelError] = useState("");
-
   const [ingestSource, setIngestSource] = useState<IngestSource>("all");
   const [ingestJobId, setIngestJobId] = useState("");
   const [ingestStatus, setIngestStatus] = useState("idle");
@@ -39,6 +70,12 @@ export default function App() {
   const [ingestError, setIngestError] = useState("");
   const [clearLoading, setClearLoading] = useState(false);
   const [clearError, setClearError] = useState("");
+  const [systemConfig, setSystemConfig] = useState<AdminSystemConfigResponse | null>(null);
+  const [systemConfigLoading, setSystemConfigLoading] = useState(false);
+  const [systemConfigError, setSystemConfigError] = useState("");
+  const [systemConfigFeedback, setSystemConfigFeedback] = useState("");
+  const [migrationLoading, setMigrationLoading] = useState(false);
+  const [migrationMessage, setMigrationMessage] = useState("");
   const [contextSources, setContextSources] = useState<ContextSource[]>(["local", "notion"]);
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -48,39 +85,28 @@ export default function App() {
     () => question.trim().length > 0 && !chatLoading && contextSources.length > 0,
     [chatLoading, contextSources.length, question]
   );
-  const isBackendReady =
-    status !== null &&
-    status.chunk_count > 0 &&
-    status.notion_configured &&
-    status.embedding_model.trim().length > 0 &&
-    status.llm_model.trim().length > 0;
-  const missingReadinessItems =
-    status === null
-      ? []
-      : [
-          ...(status.chunk_count > 0 ? [] : ["No chunks indexed"]),
-          ...(status.notion_configured ? [] : ["Notion not configured"]),
-          ...(status.embedding_model.trim().length > 0 ? [] : ["Embedding model missing"]),
-          ...(status.llm_model.trim().length > 0 ? [] : ["LLM model missing"])
-        ];
-
-  async function loadStatus() {
+  async function loadAdminStatus() {
     try {
-      setStatusError("");
-      const data = await fetchStatus();
-      setStatus(data);
+      setAdminAccessLoading(true);
+      setAdminStatusError("");
+      const data = await fetchAdminStatus();
+      setAdminStatus(data);
+      setAdminAccess(data.access);
     } catch (error) {
-      setStatusError(error instanceof Error ? error.message : "Failed to load status");
+      setAdminStatusError(error instanceof Error ? error.message : "Failed to load status");
+    } finally {
+      setAdminAccessLoading(false);
     }
   }
 
-  async function loadModels(showError = true) {
+  async function loadAdminModels(showError = true) {
     try {
       setModelError("");
-      const data = await fetchModels();
+      const data = await fetchAdminModels();
       setModels(data.available);
       setSelectedModel(data.current);
-      setStatus((previous) => (previous ? { ...previous, llm_model: data.current } : previous));
+      setAdminAccess(data.access);
+      setAdminStatus((previous) => (previous ? { ...previous, llm_model: data.current } : previous));
     } catch (error) {
       if (showError) {
         setModelError(error instanceof Error ? error.message : "Failed to load model options");
@@ -88,9 +114,21 @@ export default function App() {
     }
   }
 
+  async function loadAdminSystem() {
+    try {
+      setSystemConfigError("");
+      const data = await fetchAdminSystemConfig();
+      setAdminAccess(data.access);
+      setSystemConfig(data);
+    } catch (error) {
+      setSystemConfigError(error instanceof Error ? error.message : "Failed to load admin system config");
+    }
+  }
+
   useEffect(() => {
-    void loadStatus();
-    void loadModels();
+    void loadAdminStatus();
+    void loadAdminModels();
+    void loadAdminSystem();
     return () => {
       eventSourceRef.current?.close();
     };
@@ -98,10 +136,10 @@ export default function App() {
 
   useEffect(() => {
     const pollId = window.setInterval(() => {
-      void loadModels(false);
+      void loadAdminModels(false);
     }, 15000);
     const onFocus = () => {
-      void loadModels(false);
+      void loadAdminModels(false);
     };
     window.addEventListener("focus", onFocus);
     return () => {
@@ -165,15 +203,35 @@ export default function App() {
     try {
       setModelLoading(true);
       setModelError("");
-      const data = await selectModel(nextModel);
+      const data = await selectAdminModel(nextModel);
       setSelectedModel(data.current);
       setModels(data.available);
-      setStatus((previous) => (previous ? { ...previous, llm_model: data.current } : previous));
+      setAdminAccess(data.access);
+      setAdminStatus((previous) => (previous ? { ...previous, llm_model: data.current } : previous));
     } catch (error) {
       setModelError(error instanceof Error ? error.message : "Failed to switch model");
     } finally {
       setModelLoading(false);
     }
+  }
+
+  function startIngestStream(jobId: string) {
+    const stream = createAdminIngestEventSource(
+      jobId,
+      (evt: IngestEvent) => {
+        setIngestStatus(evt.status);
+        setIngestProgress(evt.progress);
+        setIngestMessage(evt.message || evt.stage);
+        if (evt.status === "completed" || evt.status === "failed") {
+          stream.close();
+          void loadAdminStatus();
+        }
+      },
+      () => {
+        setIngestError("Connection to ingestion events was interrupted");
+      }
+    );
+    eventSourceRef.current = stream;
   }
 
   async function onStartIngest() {
@@ -184,26 +242,9 @@ export default function App() {
     eventSourceRef.current?.close();
 
     try {
-      const job = await startIngest(ingestSource);
+      const job = await startAdminIngest(ingestSource);
       setIngestJobId(job.job_id);
-
-      const stream = createIngestEventSource(
-        job.job_id,
-        (evt: IngestEvent) => {
-          setIngestStatus(evt.status);
-          setIngestProgress(evt.progress);
-          setIngestMessage(evt.message || evt.stage);
-          if (evt.status === "completed" || evt.status === "failed") {
-            stream.close();
-            void loadStatus();
-          }
-        },
-        () => {
-          setIngestError("Connection to ingestion events was interrupted");
-        }
-      );
-
-      eventSourceRef.current = stream;
+      startIngestStream(job.job_id);
     } catch (error) {
       setIngestStatus("failed");
       setIngestError(error instanceof Error ? error.message : "Unable to start ingestion");
@@ -228,16 +269,70 @@ export default function App() {
       setClearError("");
       setIngestError("");
       eventSourceRef.current?.close();
-      await clearIngestedData();
+      await clearAdminIngestedData();
       setIngestJobId("");
       setIngestStatus("idle");
       setIngestMessage("Vector store cleared");
       setIngestProgress(0);
-      await loadStatus();
+      await loadAdminStatus();
     } catch (error) {
       setClearError(error instanceof Error ? error.message : "Unable to clear ingested data");
     } finally {
       setClearLoading(false);
+    }
+  }
+
+  async function onUpdateSystemConfig(payload: { embedding_model?: string; vector_db_provider?: VectorDbProvider }) {
+    try {
+      setSystemConfigLoading(true);
+      setSystemConfigFeedback("");
+      const response = await updateAdminSystemConfig(payload);
+      setSystemConfig(response.config);
+      setAdminAccess(response.config.access);
+      setSystemConfigFeedback(response.message);
+    } catch (error) {
+      setSystemConfigError(error instanceof Error ? error.message : "Unable to update admin config");
+    } finally {
+      setSystemConfigLoading(false);
+    }
+  }
+
+  async function onRunReindexMigration() {
+    try {
+      setMigrationLoading(true);
+      setMigrationMessage("");
+      const response = await runAdminMigration({ action: "reindex", source: ingestSource });
+      setAdminAccess(response.access);
+      setMigrationMessage(response.message);
+      if (response.started && response.job_id) {
+        setIngestJobId(response.job_id);
+        setIngestStatus("queued");
+        setIngestMessage("Migration reindex started...");
+        setIngestProgress(0);
+        startIngestStream(response.job_id);
+      }
+    } catch (error) {
+      setMigrationMessage(error instanceof Error ? error.message : "Unable to start reindex migration");
+    } finally {
+      setMigrationLoading(false);
+    }
+  }
+
+  async function onRunVectorDbMigration() {
+    try {
+      setMigrationLoading(true);
+      setMigrationMessage("");
+      const response = await runAdminMigration({
+        action: "vector_db_migration",
+        source: "all",
+        target_vector_db_provider: systemConfig?.vector_db_provider
+      });
+      setAdminAccess(response.access);
+      setMigrationMessage(response.message);
+    } catch (error) {
+      setMigrationMessage(error instanceof Error ? error.message : "Unable to run vector DB migration");
+    } finally {
+      setMigrationLoading(false);
     }
   }
 
@@ -249,97 +344,38 @@ export default function App() {
     <main className="min-h-screen bg-black text-white">
       <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
         <header className={panelClass}>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">AXI Expert</h1>
-          <p className="mt-1 text-sm text-neutral-400">Chat over local and Notion documents with live ingestion tracking.</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-white">AXI Expert</h1>
+              <p className="mt-1 text-sm text-neutral-400">Chat over local and Notion documents with admin control center.</p>
+            </div>
+            <div className="inline-flex rounded-xl border border-neutral-700 bg-black p-1">
+              <button
+                type="button"
+                className={`rounded-lg px-3 py-1.5 text-sm transition ${
+                  activeTab === "chat" ? "bg-white text-black" : "text-neutral-200 hover:bg-neutral-900"
+                }`}
+                onClick={() => setActiveTab("chat")}
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                className={`rounded-lg px-3 py-1.5 text-sm transition ${
+                  activeTab === "admin" ? "bg-white text-black" : "text-neutral-200 hover:bg-neutral-900"
+                }`}
+                onClick={() => setActiveTab("admin")}
+              >
+                Admin
+              </button>
+            </div>
+          </div>
         </header>
 
-        <section className={panelClass}>
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-medium">Agent Status</h2>
-              {isBackendReady ? (
-                <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-xs font-medium text-white ring-1 ring-neutral-700">
-                  Ready
-                </span>
-              ) : (
-                <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-xs font-medium text-neutral-200 ring-1 ring-neutral-700">
-                  Not Ready
-                </span>
-              )}
-            </div>
-            <button
-              className="rounded-xl border border-neutral-700 bg-black px-3 py-1.5 text-sm text-white transition hover:bg-neutral-900"
-              onClick={() => void loadStatus()}
-              type="button"
-            >
-              Refresh
-            </button>
-          </div>
-          {statusError ? (
-            <p className="text-sm text-white">{statusError}</p>
-          ) : status ? (
-            <>
-              <div className="grid gap-2 text-sm text-neutral-300 md:grid-cols-2">
-                <p>Chunks: {status.chunk_count}</p>
-                <p>Notion configured: {status.notion_configured ? "Yes" : "No"}</p>
-                <p className="truncate">Embedding model: {status.embedding_model}</p>
-                <p className="truncate">LLM model: {status.llm_model}</p>
-              </div>
-              {!isBackendReady ? <p className="mt-3 text-sm text-white">Missing: {missingReadinessItems.join(", ")}</p> : null}
-            </>
-          ) : (
-            <p className="text-sm text-neutral-400">Loading status...</p>
-          )}
-        </section>
-
-        <section className={panelClass}>
-          <h2 className="mb-3 text-lg font-medium">Ingest Documents</h2>
-          <div className="flex flex-wrap items-center gap-3">
-            <select
-              className={inputClass}
-              value={ingestSource}
-              onChange={(event) => setIngestSource(event.target.value as IngestSource)}
-            >
-              {INGEST_SOURCES.map((source) => (
-                <option key={source} value={source}>
-                  {source}
-                </option>
-              ))}
-            </select>
-            <button
-              className="rounded-xl border border-neutral-600 bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-neutral-200"
-              type="button"
-              onClick={onStartIngest}
-            >
-              Ingest
-            </button>
-            <button
-              className="rounded-xl border border-neutral-700 bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-60"
-              type="button"
-              onClick={() => void onClearIngest()}
-              disabled={clearLoading}
-            >
-              {clearLoading ? "Clearing..." : "Clear"}
-            </button>
-          </div>
-          <div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-neutral-900">
-            <div
-              className="h-full bg-white transition-all duration-300"
-              style={{ width: `${Math.max(0, Math.min(100, ingestProgress))}%` }}
-            />
-          </div>
-          <p className="mt-2 text-sm text-neutral-300">
-            {ingestStatus} ({ingestProgress}%): {ingestMessage}
-          </p>
-          {ingestJobId ? <p className="text-xs text-neutral-500">Job: {ingestJobId}</p> : null}
-          {ingestError ? <p className="mt-1 text-sm text-white">{ingestError}</p> : null}
-          {clearError ? <p className="mt-1 text-sm text-white">{clearError}</p> : null}
-        </section>
-
-        <section className={panelClass}>
+        {activeTab === "chat" ? (
+          <section className={panelClass}>
           <h2 className="mb-3 text-lg font-medium">Chat</h2>
           {chatError ? <p className="mb-2 text-sm text-white">{chatError}</p> : null}
-          {modelError ? <p className="mb-2 text-sm text-white">{modelError}</p> : null}
           <div className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
             {messages.map((message) => (
               <article
@@ -443,18 +479,6 @@ export default function App() {
                 <input checked={showSources} onChange={(event) => setShowSources(event.target.checked)} type="checkbox" />
                 Show sources
               </label>
-              <select
-                className={`${inputClass} disabled:opacity-50`}
-                value={selectedModel}
-                disabled={modelLoading || models.length === 0}
-                onChange={(event) => void onSelectModel(event.target.value)}
-              >
-                {models.map((modelName) => (
-                  <option key={modelName} value={modelName}>
-                    {modelName}
-                  </option>
-                ))}
-              </select>
               <button
                 aria-label="Send"
                 className="inline-flex items-center justify-center rounded-xl border border-neutral-600 bg-white px-3 py-2 text-sm text-black transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-60"
@@ -478,7 +502,43 @@ export default function App() {
               </button>
             </div>
           </form>
-        </section>
+          </section>
+        ) : (
+          <AdminAccessGate access={adminAccess} loading={adminAccessLoading} error={adminStatusError}>
+            <StatusPanel status={adminStatus} statusError={adminStatusError} onRefresh={() => void loadAdminStatus()} />
+            <ModelSelectionPanel
+              models={models}
+              selectedModel={selectedModel}
+              loading={modelLoading}
+              error={modelError}
+              onSelectModel={(model) => void onSelectModel(model)}
+            />
+            <IngestPanel
+              ingestSource={ingestSource}
+              ingestStatus={ingestStatus}
+              ingestMessage={ingestMessage}
+              ingestProgress={ingestProgress}
+              ingestJobId={ingestJobId}
+              ingestError={ingestError}
+              onChangeSource={setIngestSource}
+              onStartIngest={() => void onStartIngest()}
+            />
+            <DangerZonePanel clearLoading={clearLoading} clearError={clearError} onClear={() => void onClearIngest()} />
+            <SystemSettingsPanel
+              config={systemConfig}
+              loading={systemConfigLoading}
+              error={systemConfigError}
+              feedback={systemConfigFeedback}
+              onSave={(payload) => void onUpdateSystemConfig(payload)}
+            />
+            <MigrationPanel
+              loading={migrationLoading}
+              message={migrationMessage}
+              onReindex={() => void onRunReindexMigration()}
+              onVectorMigration={() => void onRunVectorDbMigration()}
+            />
+          </AdminAccessGate>
+        )}
       </div>
     </main>
   );
