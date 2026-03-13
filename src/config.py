@@ -1,6 +1,12 @@
 """Configuration settings for the RAG agent."""
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Base paths
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -8,17 +14,71 @@ DOCS_DIR = PROJECT_ROOT / "agent-doc"
 DATA_DIR = PROJECT_ROOT / "data"
 CHROMA_DB_DIR = DATA_DIR / "chroma_db"
 
-# Ollama settings
-EMBEDDING_MODEL = "hf.co/nomic-ai/nomic-embed-text-v1.5-GGUF"
-LLM_MODEL = "hf.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF:Q4_K_M"
+# Embedding model (HuggingFace)
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-large-en-v1.5").strip()
+AVAILABLE_EMBEDDING_MODELS = os.getenv("AVAILABLE_EMBEDDING_MODELS", EMBEDDING_MODEL).strip()
+EMBEDDING_DEVICE = os.getenv("EMBEDDING_DEVICE", "cuda:0")
+EMBEDDING_BATCH_SIZE = max(1, int(os.getenv("EMBEDDING_BATCH_SIZE", "32")))
+EMBEDDING_OOM_RETRY_BATCH_SIZE = max(1, int(os.getenv("EMBEDDING_OOM_RETRY_BATCH_SIZE", "8")))
+EMBEDDING_NORMALIZE = os.getenv("EMBEDDING_NORMALIZE", "true").strip().lower() in {"1", "true", "yes", "on"}
+EMBEDDING_OOM_CPU_FALLBACK = (
+    os.getenv("EMBEDDING_OOM_CPU_FALLBACK", "false").strip().lower() in {"1", "true", "yes", "on"}
+)
+LLM_MODEL = os.getenv("LLM_MODEL", "hf.co/unsloth/gpt-oss-20b-GGUF:Q4_K_M")
 OLLAMA_BASE_URL = "http://localhost:11434"
+AVAILABLE_LLM_MODELS = os.getenv("AVAILABLE_LLM_MODELS", "")
+_ACTIVE_LLM_MODEL = LLM_MODEL
 
 # Chunking settings
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
 # Retrieval settings
-TOP_K_RESULTS = 4
+TOP_K_RESULTS = 8
 
 # ChromaDB collection name
 COLLECTION_NAME = "agent_docs"
+VECTOR_DB_PROVIDER = os.getenv("VECTOR_DB_PROVIDER", "chroma").strip().lower()
+AVAILABLE_VECTOR_DB_PROVIDERS = os.getenv("AVAILABLE_VECTOR_DB_PROVIDERS", "chroma").strip().lower()
+
+# Supported document extensions
+SUPPORTED_EXTENSIONS = [
+    ".txt",
+    ".md",
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".xlsx",
+    ".xls",
+    ".csv",
+    ".pptx",
+    ".ppt",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".tiff",
+]
+
+# Multimodal vision settings
+VISION_ENABLED = os.getenv("VISION_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+VISION_CAPTION_PROVIDER = os.getenv("VISION_CAPTION_PROVIDER", "ollama").strip().lower()
+VISION_CAPTION_MODEL = os.getenv("VISION_CAPTION_MODEL", "llava:13b").strip()
+VISION_MAX_IMAGES_PER_DOC = max(1, int(os.getenv("VISION_MAX_IMAGES_PER_DOC", "16")))
+OCR_ENABLED = os.getenv("OCR_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+# Notion settings
+NOTION_TOKEN = os.getenv("NOTION_TOKEN", "")
+NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID", "")
+
+
+def get_llm_model() -> str:
+    """Return the active LLM model for runtime requests."""
+    return _ACTIVE_LLM_MODEL
+
+
+def set_llm_model(model: str) -> None:
+    """Set the active LLM model for the running process."""
+    global _ACTIVE_LLM_MODEL
+    _ACTIVE_LLM_MODEL = model
+    os.environ["LLM_MODEL"] = model

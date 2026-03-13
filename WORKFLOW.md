@@ -11,7 +11,8 @@ This RAG (Retrieval-Augmented Generation) system allows you to query your docume
 ```
 src/
 ├── config.py           # Configuration (models, paths, settings)
-├── document_loader.py  # Load & chunk text files
+├── document_loader.py  # Load & chunk local files (txt, pdf, docx, etc.)
+├── notion_loader.py    # Load documents from Notion database via API
 ├── embeddings.py       # Ollama embeddings wrapper
 ├── vector_store.py     # ChromaDB operations
 ├── rag_chain.py        # RAG pipeline (retrieval + generation)
@@ -22,25 +23,38 @@ src/
 
 ## Phase 1: Document Ingestion
 
-Run once to index your documents into the vector database.
+Run once to index your documents into the vector database. Supports two sources:
 
 ```
-┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐      ┌─────────────────┐
-│  agent-doc/     │      │  document_loader │      │   embeddings    │      │  vector_store   │
-│  *.txt files    │ ───► │  load + chunk    │ ───► │  Ollama embed   │ ───► │  ChromaDB       │
-│                 │      │  (1000 chars)    │      │  (nomic-embed)  │      │  (persistent)   │
-└─────────────────┘      └──────────────────┘      └─────────────────┘      └─────────────────┘
+┌─────────────────┐
+│  agent-doc/     │──┐
+│  local files    │  │
+└─────────────────┘  │     ┌──────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+                     ├───► │  chunk documents │ ───► │   embeddings    │ ───► │  vector_store   │
+┌─────────────────┐  │     │  (1000 chars)    │      │  Ollama embed   │      │  ChromaDB       │
+│  Notion DB      │──┘     └──────────────────┘      │  (nomic-embed)  │      │  (persistent)   │
+│  (via API)      │                                  └─────────────────┘      └─────────────────┘
+└─────────────────┘
 ```
+
+### Sources:
+
+| Source | Description |
+|--------|-------------|
+| **Local** | Files from `agent-doc/` (txt, pdf, docx, xlsx, csv, pptx, md) |
+| **Notion** | Pages from a Notion database via API (properties + page content) |
 
 ### Steps:
-1. **Load** - Read all `.txt` files from `agent-doc/` directory
+1. **Load** - Read documents from local files and/or Notion database
 2. **Chunk** - Split documents into 1000-character chunks with 200-character overlap
 3. **Embed** - Convert each chunk into a vector using `nomic-embed-text` model
 4. **Store** - Save vectors in ChromaDB (persisted to `data/chroma_db/`)
 
-### Command:
+### Commands:
 ```bash
-rag ingest
+rag ingest                  # Ingest from all sources (local + Notion)
+rag ingest --source local   # Ingest from local files only
+rag ingest --source notion  # Ingest from Notion only
 ```
 
 ---
@@ -55,7 +69,7 @@ Execute each time you ask a question.
                                     │   Vector Store  │
                                     └────────┬────────┘
                                              │
-                                             │ 2. Find top-4
+                                             │ 2. Find top-8
                                              │    similar chunks
                                              ▼
 ┌─────────────────┐   1. Embed    ┌─────────────────┐
@@ -87,7 +101,7 @@ Execute each time you ask a question.
 
 ### Steps:
 1. **Embed Query** - Convert user question into a vector
-2. **Search** - Find top-4 most similar document chunks in ChromaDB
+2. **Search** - Find top-8 most similar document chunks in ChromaDB
 3. **Build Prompt** - Combine retrieved chunks as context with the question
 4. **Generate** - Send prompt to Mistral-7B LLM via Ollama
 5. **Return** - Display answer and optionally show source documents
@@ -104,7 +118,9 @@ rag query "your question here" -s   # include source snippets
 
 | Command | Description |
 |---------|-------------|
-| `rag ingest` | Load, chunk, embed, and store documents |
+| `rag ingest` | Ingest from all sources (local + Notion) |
+| `rag ingest --source local` | Ingest from local files only |
+| `rag ingest --source notion` | Ingest from Notion database only |
 | `rag query "question"` | Ask a question and get an answer |
 | `rag query "question" -s` | Ask with source snippets displayed |
 | `rag status` | Show current configuration and chunk count |
@@ -122,7 +138,18 @@ Defined in `src/config.py`:
 | LLM Model | `Mistral-7B-Instruct-v0.3` |
 | Chunk Size | 1000 characters |
 | Chunk Overlap | 200 characters |
-| Top-K Results | 4 documents |
+| Top-K Results | 8 documents |
+
+### Notion Setup
+
+Set in `.env` file:
+
+| Variable | Description |
+|----------|-------------|
+| `NOTION_TOKEN` | Integration token from notion.so/my-integrations |
+| `NOTION_DATABASE_ID` | Database ID from Notion URL |
+
+Notion loader flow: **Database** → **Data Sources** → **Query Pages** → **Extract Properties + Content**
 
 ---
 
@@ -130,5 +157,6 @@ Defined in `src/config.py`:
 
 | Phase | Input | Process | Output |
 |-------|-------|---------|--------|
-| **Ingest** | `.txt` files | chunk → embed → store | Vectors in ChromaDB |
+| **Ingest (Local)** | Local files (txt, pdf, docx, etc.) | load → chunk → embed → store | Vectors in ChromaDB |
+| **Ingest (Notion)** | Notion database pages | fetch API → chunk → embed → store | Vectors in ChromaDB |
 | **Query** | User question | embed → search → prompt → LLM | Answer + sources |

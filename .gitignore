@@ -36,3 +36,13 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Environment
+.env
+
+# Documents
+/agent-doc/
+
+# Frontend assets
+node_modules/
+

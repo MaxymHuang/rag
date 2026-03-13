@@ -1,16 +1,23 @@
 """CLI interface for the RAG agent."""
 
+import sys
 import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 
-from src.document_loader import load_and_chunk_documents
-from src.vector_store import add_documents, clear_vector_store, get_document_count
-from src.rag_chain import query_rag
-from src.config import DOCS_DIR, LLM_MODEL, EMBEDDING_MODEL
+from src.services.rag_service import clear_documents, get_status, ingest_documents, query_documents
 
-console = Console(force_terminal=True, legacy_windows=True)
+# Use UTF-8 for Windows console if possible
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+console = Console(force_terminal=True)
+
+
+def sanitize_text(text: str) -> str:
+    """Replace non-ASCII characters for safe console output."""
+    return text.encode("ascii", errors="replace").decode("ascii")
 
 
 @click.group()
@@ -20,48 +27,93 @@ def main():
 
 
 @main.command()
-def ingest():
-    """Ingest documents from agent-doc/ into the vector store."""
-    console.print(f"\n[bold blue]Ingesting documents from:[/] {DOCS_DIR}\n")
-    
-    console.print("Loading and chunking documents...")
+@click.option(
+    "--source", "-src",
+    type=click.Choice(["all", "local", "notion"], case_sensitive=False),
+    default="all",
+    help="Document source: 'local' (agent-doc/), 'notion', or 'all' (default)"
+)
+def ingest(source: str):
+    """Ingest documents from local files and/or Notion into the vector store."""
     try:
-        chunks = load_and_chunk_documents()
+        result = ingest_documents(source=source)
     except FileNotFoundError as e:
         console.print(f"[red]Error:[/] {e}")
         return
-    
-    if not chunks:
-        console.print("[yellow]No documents found to ingest.[/]")
+    except ValueError as e:
+        console.print(f"[red]Error:[/] {e}")
         return
-    
-    console.print(f"Loaded {len(chunks)} chunks")
-    console.print(f"Embedding chunks using {EMBEDDING_MODEL}...")
-    
-    count = add_documents(chunks)
-    
-    console.print(f"\n[green]Successfully ingested {count} chunks into the vector store.[/]\n")
+    except Exception as e:
+        console.print(f"[red]Ingestion failed:[/] {e}")
+        return
+
+    if result["total_chunks"] == 0:
+        console.print("\n[yellow]No documents found to ingest.[/]")
+        return
+
+    console.print(f"\n[bold]Total:[/] {result['total_chunks']} chunks")
+    if result["local_chunks"]:
+        console.print(f"  Local chunks: {result['local_chunks']}")
+    if result["notion_chunks"]:
+        console.print(
+            f"  Notion chunks: {result['notion_chunks']} (from {result['notion_pages']} pages)"
+        )
+    console.print(f"\n[green]Successfully ingested {result['ingested_chunks']} chunks into the vector store.[/]\n")
 
 
 @main.command()
 @click.argument("question")
 @click.option("--show-sources", "-s", is_flag=True, help="Show source documents")
-def query(question: str, show_sources: bool):
+@click.option(
+    "--mode", "-m",
+    type=click.Choice(["hybrid", "vector", "keyword"], case_sensitive=False),
+    default="hybrid",
+    help="Search mode: 'hybrid' (default), 'vector' (semantic), 'keyword' (exact match)"
+)
+@click.option("--verbose", "-v", is_flag=True, help="Show retrieved chunks before answering")
+@click.option(
+    "--filter-title", "-t",
+    default=None,
+    help="Filter results by title/filename (case-insensitive substring match)"
+)
+def query(question: str, show_sources: bool, mode: str, verbose: bool, filter_title: str | None):
     """Ask a question about your documents."""
-    doc_count = get_document_count()
-    
+    status_data = get_status()
+    doc_count = status_data["chunk_count"]
+
     if doc_count == 0:
         console.print("[yellow]No documents in vector store. Run 'rag ingest' first.[/]")
         return
+
+    filter_info = f", title filter: '{filter_title}'" if filter_title else ""
+    console.print(
+        f"\n[dim]Querying {doc_count} chunks ({mode} search{filter_info}) "
+        f"with {status_data['llm_model']}...[/]\n"
+    )
+
+    console.print("Retrieving relevant documents...")
+    try:
+        answer, sources = query_documents(question, search_mode=mode, title_filter=filter_title)
+    except ValueError as e:
+        console.print(f"[yellow]{e}[/]")
+        return
+
+    # Verbose mode: show what was retrieved
+    if verbose and sources:
+        console.print(f"\n[bold cyan]Retrieved {len(sources)} chunks:[/]")
+        for i, doc in enumerate(sources, 1):
+            source_name = sanitize_text(doc.metadata.get("source", "unknown"))
+            preview = doc.page_content[:150].replace("\n", " ")
+            preview = sanitize_text(preview) + "..."
+            console.print(f"  [{i}] {source_name}: {preview}")
+        console.print()
     
-    console.print(f"\n[dim]Querying {doc_count} document chunks with {LLM_MODEL}...[/]\n")
+    console.print("Generating answer...")
     
-    console.print("Thinking...")
-    answer, sources = query_rag(question)
-    
-    # Display answer
+    # Display answer (sanitize for Windows console)
+    safe_answer = sanitize_text(answer)
     console.print(Panel(
-        Markdown(answer),
+        Markdown(safe_answer),
         title="[bold green]Answer[/]",
         border_style="green"
     ))
@@ -70,8 +122,9 @@ def query(question: str, show_sources: bool):
     if show_sources and sources:
         console.print("\n[bold blue]Sources:[/]")
         for i, doc in enumerate(sources, 1):
-            source_name = doc.metadata.get("source", "unknown")
-            preview = doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content
+            source_name = sanitize_text(doc.metadata.get("source", "unknown"))
+            content = doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content
+            preview = sanitize_text(content)
             console.print(Panel(
                 preview,
                 title=f"[dim]{i}. {source_name}[/]",
@@ -85,7 +138,7 @@ def query(question: str, show_sources: bool):
 @click.confirmation_option(prompt="Are you sure you want to clear the vector store?")
 def clear():
     """Clear all data from the vector store."""
-    if clear_vector_store():
+    if clear_documents():
         console.print("[green]Vector store cleared successfully.[/]")
     else:
         console.print("[yellow]Vector store was already empty.[/]")
@@ -94,13 +147,15 @@ def clear():
 @main.command()
 def status():
     """Show the current status of the RAG agent."""
-    doc_count = get_document_count()
-    
+    status_data = get_status()
     console.print("\n[bold]RAG Agent Status[/]\n")
-    console.print(f"  Documents directory: {DOCS_DIR}")
-    console.print(f"  Chunks in vector store: {doc_count}")
-    console.print(f"  Embedding model: {EMBEDDING_MODEL}")
-    console.print(f"  LLM model: {LLM_MODEL}")
+    console.print(f"  Documents directory: {status_data['documents_directory']}")
+    console.print(f"  Notion configured: {'Yes' if status_data['notion_configured'] else 'No'}")
+    if status_data["notion_configured"]:
+        console.print(f"  Notion database: {status_data['notion_database_id'][:8]}...")
+    console.print(f"  Chunks in vector store: {status_data['chunk_count']}")
+    console.print(f"  Embedding model: {status_data['embedding_model']}")
+    console.print(f"  LLM model: {status_data['llm_model']}")
     console.print()
 
 
