@@ -6,7 +6,15 @@ from typing import Literal
 
 from langchain_core.documents import Document
 
-from src.config import DOCS_DIR, EMBEDDING_MODEL, NOTION_DATABASE_ID, NOTION_TOKEN, get_llm_model
+from src.config import (
+    DOCS_DIR,
+    EMBEDDING_MODEL,
+    LLAMACPP_N_GPU_LAYERS,
+    NOTION_DATABASE_ID,
+    NOTION_TOKEN,
+    get_llm_model,
+)
+from src.llm_runtime import llamacpp_supports_gpu_offload
 from src.document_loader import chunk_documents, load_multimodal_artifacts
 from src.notion_loader import load_notion_documents
 from src.rag_chain import query_rag
@@ -175,6 +183,8 @@ def get_status() -> dict:
         "chunk_count": get_document_count(),
         "embedding_model": EMBEDDING_MODEL,
         "llm_model": get_llm_model(),
+        "llamacpp_gpu_offload": llamacpp_supports_gpu_offload(),
+        "llamacpp_n_gpu_layers": LLAMACPP_N_GPU_LAYERS,
     }
 
 

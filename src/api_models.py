@@ -45,6 +45,8 @@ class StatusResponse(BaseModel):
     chunk_count: int
     embedding_model: str
     llm_model: str
+    llamacpp_gpu_offload: bool = False
+    llamacpp_n_gpu_layers: int = 0
 
 
 class ClearResponse(BaseModel):

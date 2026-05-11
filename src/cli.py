@@ -156,6 +156,14 @@ def status():
     console.print(f"  Chunks in vector store: {status_data['chunk_count']}")
     console.print(f"  Embedding model: {status_data['embedding_model']}")
     console.print(f"  LLM model: {status_data['llm_model']}")
+    offload = status_data.get("llamacpp_gpu_offload", False)
+    n_gpu = status_data.get("llamacpp_n_gpu_layers", 0)
+    console.print(f"  LLM GPU offload (llama.cpp): {'yes' if offload else 'no'} (n_gpu_layers={n_gpu})")
+    if not offload and n_gpu != 0:
+        console.print(
+            "  [yellow]Note:[/] llama-cpp-python has no GPU backend; inference uses CPU. "
+            "Reinstall with CUDA — see README (LLM GPU acceleration)."
+        )
     console.print()
 
 

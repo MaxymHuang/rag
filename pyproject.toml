@@ -1,18 +1,18 @@
 [project]
 name = "rag-agent"
 version = "0.1.0"
-description = "A CLI-based RAG agent using Ollama and ChromaDB"
+description = "A CLI-based RAG agent using llama.cpp and ChromaDB"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "langchain>=0.3.0",
     "langchain-community>=0.3.0",
-    "langchain-ollama>=0.2.0",
     "langchain-chroma>=0.2.0",
     "langchain-huggingface>=0.1.0",
+    "llama-cpp-python>=0.3.2",
+    "huggingface-hub>=0.24.0",
     "sentence-transformers>=3.0.0",
     "chromadb>=0.5.0",
-    "ollama>=0.3.0",
     "rich>=13.0.0",
     "click>=8.1.0",
     "unstructured[all-docs]>=0.15.0",
@@ -27,6 +27,7 @@ dependencies = [
     "torch==2.5.1+cu124",
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
+    "pytest>=9.0.3",
 ]
 
 [project.scripts]
@@ -47,3 +48,4 @@ torch = { index = "pytorch-cu124" }
 name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"
 explicit = true
+

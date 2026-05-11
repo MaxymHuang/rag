@@ -4,7 +4,7 @@ This document describes the enhancements made to the RAG system.
 
 ## 1. HuggingFace GPU Embeddings
 
-**Previous**: Ollama embeddings with `nomic-embed-text-v1.5-GGUF` (768 dimensions)
+**Previous**: lower-dimensional embedding baseline with `nomic-embed-text-v1.5-GGUF` (768 dimensions)
 
 **New**: HuggingFace embeddings with `BAAI/bge-large-en-v1.5` (1024 dimensions)
 

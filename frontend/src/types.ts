@@ -35,6 +35,8 @@ export interface StatusResponse {
   chunk_count: number;
   embedding_model: string;
   llm_model: string;
+  llamacpp_gpu_offload?: boolean;
+  llamacpp_n_gpu_layers?: number;
 }
 
 export interface AccessMetadata {

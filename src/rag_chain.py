@@ -1,11 +1,10 @@
 """RAG chain combining retrieval and LLM generation."""
 
 from typing import Literal
-from langchain_ollama import ChatOllama
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
 
-from src.config import OLLAMA_BASE_URL, TOP_K_RESULTS, get_llm_model
+from src.config import TOP_K_RESULTS
+from src.llm_runtime import chat_completion
 from src.vector_store import similarity_search, hybrid_search, keyword_search
 
 
@@ -35,15 +34,6 @@ Conversation history:
 Question: {question}
 
 Answer based on the context above. If you find relevant information, cite the source number [X]."""
-
-
-def get_llm() -> ChatOllama:
-    """Get the Ollama LLM."""
-    return ChatOllama(
-        model=get_llm_model(),
-        base_url=OLLAMA_BASE_URL,
-        temperature=0.1
-    )
 
 
 def format_context(documents: list[Document]) -> str:
@@ -128,20 +118,18 @@ def query_rag(
     context = format_context(documents)
     formatted_history = format_history(history)
     
-    # Build prompt
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        ("human", RAG_PROMPT_TEMPLATE)
-    ])
-    
-    # Get LLM and generate response
-    llm = get_llm()
-    chain = prompt | llm
-    
-    response = chain.invoke({
-        "context": context,
-        "history": formatted_history,
-        "question": question
-    })
-    
-    return response.content, documents
+    prompt = RAG_PROMPT_TEMPLATE.format(
+        context=context,
+        history=formatted_history,
+        question=question,
+    )
+
+    answer = chat_completion(
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.1,
+    )
+
+    return answer, documents
