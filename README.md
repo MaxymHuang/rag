@@ -65,7 +65,7 @@ flowchart TD
 
 1. **Python 3.10+**
 2. **uv** package manager
-3. **Ollama** installed and running: https://ollama.ai
+3. **llama-cpp-python** via `uv sync` (default wheel is **CPU-only**). On Windows with an NVIDIA GPU, run `.\scripts\install_llamacpp_cuda_windows.ps1` after sync for CUDA offload (needs CUDA toolkit + MSVC — see [LLM GPU acceleration](#llm-gpu-acceleration-llamacpp)).
 4. **Node.js 18+** (for frontend)
 
 ## Installation
@@ -162,6 +162,11 @@ Edit `src/config.py`:
 - `EMBEDDING_MODEL`
 - `EMBEDDING_DEVICE` (examples: `cuda:0`, `cuda:1`, `cpu`)
 - `LLM_MODEL`
+- `LLAMACPP_N_GPU_LAYERS`
+- `LLAMACPP_N_CTX`
+- `LLAMACPP_N_THREADS`
+- `LLAMACPP_TEMPERATURE`
+- `LLAMACPP_VERBOSE`
 - `CHUNK_SIZE`
 - `CHUNK_OVERLAP`
 - `TOP_K_RESULTS`
@@ -169,8 +174,38 @@ Edit `src/config.py`:
 - `VISION_ENABLED`
 - `VISION_CAPTION_PROVIDER`
 - `VISION_CAPTION_MODEL`
+- `VISION_MMPROJ_MODEL`
 - `VISION_MAX_IMAGES_PER_DOC`
 - `OCR_ENABLED`
+
+## LLM GPU acceleration (llama.cpp)
+
+PyTorch CUDA (`torch==...+cu124`) only affects **embeddings**. The **chat LLM** uses a separate native library: `llama-cpp-python`. The default wheel you get from a plain `uv sync` / `pip install` is often **CPU-only** (`llama_supports_gpu_offload()` is `false`), so `LLAMACPP_N_GPU_LAYERS` is ignored and you will see **no GPU usage** during `/chat`.
+
+- **Check:** `uv run python -c "import llama_cpp; print(llama_cpp.llama_supports_gpu_offload())"` — expect `True` for GPU offload.
+- **API / CLI:** `GET /status` and `rag status` include `llamacpp_gpu_offload` and `llamacpp_n_gpu_layers`.
+
+**Windows (recommended):** from the repo root, with CUDA toolkit + MSVC build tools installed:
+
+```powershell
+.\scripts\install_llamacpp_cuda_windows.ps1
+```
+
+That sets `FORCE_CMAKE` and `CMAKE_ARGS=-DGGML_CUDA=ON`, then reinstalls `llama-cpp-python` from source against your CUDA toolkit.
+
+**Manual one-liner (same effect):**
+
+```powershell
+$env:FORCE_CMAKE = "1"
+$env:CMAKE_ARGS = "-DGGML_CUDA=ON"
+uv pip install --force-reinstall --no-cache-dir llama-cpp-python
+```
+
+If CMake still skips GPU, try `-DLLAMA_CUDA=ON` instead (older CMake layouts). Prefer running from **Developer PowerShell for VS** so MSVC and SDK are on `PATH`. If `nvcc` hits **unsupported Microsoft Visual Studio version** (common when CUDA <= 12.1 sees VS 2025/2026), install **Build Tools for Visual Studio 2022** (MSVC **v143**, C++ workload) so `scripts/install_llamacpp_cuda_windows.ps1` can pick the **17.x** toolchain, or upgrade CUDA to a release that supports your MSVC. The script also appends `-allow-unsupported-compiler`, which helps some setups but not CMake’s CUDA compiler detection with a too-new host compiler.
+
+**Important:** another plain `uv sync` can reinstall the **CPU** wheel from PyPI and reset `llama_supports_gpu_offload()` to `False`. Run the script again after that.
+
+**Linux:** use the same `FORCE_CMAKE` / `CMAKE_ARGS` env vars with `uv pip install --force-reinstall --no-cache-dir llama-cpp-python`, or install a CUDA-enabled wheel from a published index if your platform provides one — see [llama-cpp-python](https://github.com/abetlen/llama-cpp-python/blob/main/README.md).
 
 ## Multimodal Ingestion
 
@@ -185,12 +220,29 @@ Example `.env` settings:
 
 ```bash
 VISION_ENABLED=true
-VISION_CAPTION_PROVIDER=ollama
-VISION_CAPTION_MODEL=llava:13b
+VISION_CAPTION_PROVIDER=llamacpp
+VISION_CAPTION_MODEL=mys/ggml_llava-v1.5-7b/ggml-model-q5_k.gguf
+VISION_MMPROJ_MODEL=mys/ggml_llava-v1.5-7b/mmproj-model-f16.gguf
 VISION_MAX_IMAGES_PER_DOC=16
 
 # Optional OCR extraction to append visible text from images
 OCR_ENABLED=false
+```
+
+llama.cpp model configuration examples:
+
+```bash
+# local GGUF file under models/
+LLM_MODEL=models/gpt-oss-20b-Q4_K_M.gguf
+
+# or auto-download from HuggingFace to models/
+LLM_MODEL=unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_K_M.gguf
+
+LLAMACPP_N_GPU_LAYERS=-1
+LLAMACPP_N_CTX=4096
+LLAMACPP_N_THREADS=16
+LLAMACPP_TEMPERATURE=0.1
+LLAMACPP_VERBOSE=false
 ```
 
 Caption-derived chunks include metadata such as:

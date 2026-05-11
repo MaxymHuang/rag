@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ollama import Client
-
-from src.config import AVAILABLE_LLM_MODELS, OLLAMA_BASE_URL, PROJECT_ROOT, get_llm_model, set_llm_model
+from src.config import AVAILABLE_LLM_MODELS, MODELS_DIR, PROJECT_ROOT, get_llm_model, set_llm_model
+from src.llm_runtime import reload_chat_llm
 
 
 def _parse_available_models(raw: str) -> list[str]:
@@ -22,37 +21,26 @@ def _parse_available_models(raw: str) -> list[str]:
     return deduped
 
 
-def _fetch_ollama_models() -> list[str]:
-    """Fetch currently available model names from the running Ollama instance."""
-    try:
-        response = Client(host=OLLAMA_BASE_URL).list()
-    except Exception:  # noqa: BLE001
+def _scan_local_gguf_models() -> list[str]:
+    """Return discoverable local GGUF models under models/ directory."""
+    if not MODELS_DIR.exists():
         return []
-
-    if isinstance(response, dict):
-        raw_models = response.get("models", [])
-    else:
-        raw_models = getattr(response, "models", [])
-
-    names: list[str] = []
-    for item in raw_models:
-        name = ""
-        if isinstance(item, dict):
-            name = str(item.get("model") or item.get("name") or "").strip()
-        else:
-            name = str(getattr(item, "model", "") or getattr(item, "name", "")).strip()
-        if name:
-            names.append(name)
-    return _parse_available_models(",".join(names))
+    models: list[str] = []
+    for path in MODELS_DIR.rglob("*.gguf"):
+        try:
+            models.append(str(path.relative_to(MODELS_DIR)).replace("\\", "/"))
+        except ValueError:
+            models.append(str(path))
+    return _parse_available_models(",".join(models))
 
 
 def get_models() -> dict[str, object]:
     """Return the current model and selectable model options."""
     current = get_llm_model().strip()
-    from_ollama = _fetch_ollama_models()
+    from_local = _scan_local_gguf_models()
     from_env = _parse_available_models(AVAILABLE_LLM_MODELS)
 
-    available = list(from_ollama)
+    available = list(from_local)
     for model_name in from_env:
         if model_name not in available:
             available.append(model_name)
@@ -75,6 +63,7 @@ def select_model(model: str) -> dict[str, object]:
 
     _write_llm_model_to_env(model_name, PROJECT_ROOT / ".env")
     set_llm_model(model_name)
+    reload_chat_llm(model_name)
     return get_models()
 
 

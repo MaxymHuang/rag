@@ -13,7 +13,7 @@ src/
 ├── config.py           # Configuration (models, paths, settings)
 ├── document_loader.py  # Load & chunk local files (txt, pdf, docx, etc.)
 ├── notion_loader.py    # Load documents from Notion database via API
-├── embeddings.py       # Ollama embeddings wrapper
+├── embeddings.py       # HuggingFace embeddings wrapper
 ├── vector_store.py     # ChromaDB operations
 ├── rag_chain.py        # RAG pipeline (retrieval + generation)
 └── cli.py              # CLI interface
@@ -31,7 +31,7 @@ Run once to index your documents into the vector database. Supports two sources:
 │  local files    │  │
 └─────────────────┘  │     ┌──────────────────┐      ┌─────────────────┐      ┌─────────────────┐
                      ├───► │  chunk documents │ ───► │   embeddings    │ ───► │  vector_store   │
-┌─────────────────┐  │     │  (1000 chars)    │      │  Ollama embed   │      │  ChromaDB       │
+┌─────────────────┐  │     │  (1000 chars)    │      │  BGE-large      │      │  ChromaDB       │
 │  Notion DB      │──┘     └──────────────────┘      │  (nomic-embed)  │      │  (persistent)   │
 │  (via API)      │                                  └─────────────────┘      └─────────────────┘
 └─────────────────┘
@@ -87,8 +87,8 @@ Execute each time you ask a question.
                                            │ 4. Send to LLM
                                            ▼
                                   ┌─────────────────┐
-                                  │  Mistral-7B     │
-                                  │  (via Ollama)   │
+                                  │  GGUF chat LLM  │
+                                  │  (via llama.cpp)│
                                   └────────┬────────┘
                                            │
                                            │ 5. Generated answer
@@ -103,7 +103,7 @@ Execute each time you ask a question.
 1. **Embed Query** - Convert user question into a vector
 2. **Search** - Find top-8 most similar document chunks in ChromaDB
 3. **Build Prompt** - Combine retrieved chunks as context with the question
-4. **Generate** - Send prompt to Mistral-7B LLM via Ollama
+4. **Generate** - Send prompt to GGUF LLM via in-process llama.cpp
 5. **Return** - Display answer and optionally show source documents
 
 ### Command:
@@ -135,7 +135,7 @@ Defined in `src/config.py`:
 | Setting | Value |
 |---------|-------|
 | Embedding Model | `nomic-embed-text-v1.5` |
-| LLM Model | `Mistral-7B-Instruct-v0.3` |
+| LLM Model | `unsloth/gpt-oss-20b-GGUF/gpt-oss-20b-Q4_K_M.gguf` |
 | Chunk Size | 1000 characters |
 | Chunk Overlap | 200 characters |
 | Top-K Results | 8 documents |

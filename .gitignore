@@ -29,6 +29,7 @@ chroma_db/
 
 # Data
 data/chroma_db/
+models/
 
 # OS
 .DS_Store

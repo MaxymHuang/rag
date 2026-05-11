@@ -132,3 +132,21 @@ class VisionAndIngestTests(TestCase):
         context = format_context(docs)
         self.assertIn("Modality: image_caption", context)
         self.assertIn("PageOrSlide: 4", context)
+
+    def test_caption_metadata_uses_llamacpp_provider(self) -> None:
+        artifact = VisualArtifact(
+            content=b"img",
+            metadata={"source": "image.png", "image_mime": "image/png"},
+        )
+        with (
+            patch("src.vision_captioner.VISION_ENABLED", True),
+            patch("src.vision_captioner.VISION_CAPTION_PROVIDER", "llamacpp"),
+            patch(
+                "src.vision_captioner.LlamaCppVisionCaptionProvider.caption_image",
+                return_value="diagram showing flows",
+            ),
+        ):
+            docs, failed = caption_visual_artifacts([artifact])
+        self.assertEqual(failed, 0)
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(docs[0].metadata["caption_provider"], "llamacpp")

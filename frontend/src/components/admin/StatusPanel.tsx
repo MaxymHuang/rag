@@ -55,7 +55,20 @@ export function StatusPanel({ status, statusError, onRefresh }: StatusPanelProps
             <p>Notion configured: {status.notion_configured ? "Yes" : "No"}</p>
             <p className="truncate">Embedding model: {status.embedding_model}</p>
             <p className="truncate">LLM model: {status.llm_model}</p>
+            <p>
+              LLM GPU offload (llama.cpp):{" "}
+              {status.llamacpp_gpu_offload ? "yes" : "no"}
+              {status.llamacpp_n_gpu_layers != null ? ` (n_gpu_layers=${status.llamacpp_n_gpu_layers})` : ""}
+            </p>
           </div>
+          {status.llamacpp_gpu_offload === false &&
+          status.llamacpp_n_gpu_layers != null &&
+          status.llamacpp_n_gpu_layers !== 0 ? (
+            <p className="mt-3 text-sm text-amber-200">
+              This Python build of llama-cpp-python has no GPU backend; LLAMACPP_N_GPU_LAYERS is ignored and inference
+              runs on CPU. Reinstall llama-cpp-python with CUDA (see README, section LLM GPU acceleration).
+            </p>
+          ) : null}
           {!isBackendReady ? <p className="mt-3 text-sm text-white">Missing: {missingReadinessItems.join(", ")}</p> : null}
         </>
       ) : (
